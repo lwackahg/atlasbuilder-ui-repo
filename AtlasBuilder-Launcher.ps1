@@ -17,6 +17,9 @@ $hookSource = Join-Path $scriptRoot 'RiverheimConfigHook.cs'
 $settingsSource = Join-Path $scriptRoot 'RiverheimSettings.cs'
 $settingsSchemaPath = Join-Path $scriptRoot 'settings.json'
 $hookCacheRoot = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'RiverheimAtlasBuilderUI'
+$launcherStatePath = Join-Path $hookCacheRoot 'launcher-state.json'
+$engineInstalledText = 'Installed (matches your game)'
+$engineBundledText = 'Bundled (older, can differ)'
 $presetNames = [string[]]@('Default', 'Experimental', 'Mini', 'MiniExp', 'Token', 'HugeWorld')
 # From AtlasBuilder 1.0.0's preset definitions (Riverheim.Configuration.ConfigManagerExtension).
 $presetDescriptions = [ordered]@{
@@ -231,57 +234,23 @@ function Find-RiverheimConfig {
     return ''
 }
 
-function Get-RiverheimConfigHook {
-    param([string]$AtlasExe)
-    # Builds RiverheimConfigHook.cs together with RiverheimSettings.cs (the mod's settings table) into a small DLL
-    # with the C# compiler that ships with Windows, against AtlasBuilder's own assemblies. Rebuilt only when
-    # AtlasBuilder or one of the .cs files changes.
-    if (-not (Test-Path -LiteralPath $hookSource -PathType Leaf)) {
-        throw 'RiverheimConfigHook.cs was not found next to the launcher.'
-    }
-    if (-not (Test-Path -LiteralPath $settingsSource -PathType Leaf)) {
-        throw 'RiverheimSettings.cs was not found next to the launcher.'
-    }
+function Get-CSharpCompiler {
     $compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
     if (-not (Test-Path -LiteralPath $compiler)) { $compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework\v4.0.30319\csc.exe' }
     if (-not (Test-Path -LiteralPath $compiler)) { throw 'The C# compiler included with Windows (.NET Framework 4) was not found.' }
+    return $compiler
+}
 
-    $exeInfo = Get-Item -LiteralPath $AtlasExe
-    $cacheDir = Join-Path $hookCacheRoot ('{0}-{1}' -f $exeInfo.Length, $exeInfo.LastWriteTimeUtc.Ticks)
-    $hookDll = Join-Path $cacheDir 'RiverheimConfigHook.dll'
-    $newestSource = @((Get-Item -LiteralPath $hookSource).LastWriteTimeUtc, (Get-Item -LiteralPath $settingsSource).LastWriteTimeUtc) | Sort-Object -Descending | Select-Object -First 1
-    if ((Test-Path -LiteralPath $hookDll) -and (Get-Item -LiteralPath $hookDll).LastWriteTimeUtc -ge $newestSource) {
-        return $hookDll
+function Invoke-CSharpCompiler {
+    param([string]$Output, [string[]]$Sources, [string]$ReferenceDirectory, [string[]]$References)
+    # Builds a startup hook DLL against AtlasBuilder's own .NET assemblies with the C# compiler that ships with Windows.
+    $arguments = @('-nologo', '-nostdlib+', '-noconfig', '-target:library', ('-out:' + (Quote-Argument $Output)))
+    foreach ($name in $References) {
+        $arguments += '-reference:' + (Quote-Argument (Join-Path $ReferenceDirectory "$name.dll"))
     }
+    foreach ($source in $Sources) { $arguments += Quote-Argument $source }
 
-    # AtlasBuilder is a single-file app. Starting it once with no arguments (it only prints its help)
-    # unpacks its assemblies into the cache folder so the hook can be compiled against them.
-    $bundleRoot = Join-Path $cacheDir 'bundle'
-    [void](New-Item -ItemType Directory -Path $bundleRoot -Force)
-    $unpack = [System.Diagnostics.ProcessStartInfo]::new($AtlasExe)
-    $unpack.UseShellExecute = $false
-    $unpack.CreateNoWindow = $true
-    $unpack.RedirectStandardOutput = $true
-    $unpack.RedirectStandardError = $true
-    $unpack.EnvironmentVariables['DOTNET_BUNDLE_EXTRACT_BASE_DIR'] = $bundleRoot
-    $unpackProcess = [System.Diagnostics.Process]::Start($unpack)
-    [void]$unpackProcess.StandardOutput.ReadToEndAsync()
-    [void]$unpackProcess.StandardError.ReadToEndAsync()
-    if (-not $unpackProcess.WaitForExit(60000)) {
-        $unpackProcess.Kill()
-        throw 'AtlasBuilder did not finish unpacking within 60 seconds.'
-    }
-    $core = Get-ChildItem -LiteralPath $bundleRoot -Filter 'Riverheim.Core.dll' -File -Recurse | Select-Object -First 1
-    if ($null -eq $core) { throw 'Could not find the unpacked AtlasBuilder assemblies.' }
-
-    $arguments = @('-nologo', '-nostdlib+', '-noconfig', '-target:library', ('-out:' + (Quote-Argument $hookDll)))
-    foreach ($name in 'System.Private.CoreLib', 'System.Runtime', 'System.Console', 'System.Collections', 'Riverheim.Core') {
-        $arguments += '-reference:' + (Quote-Argument (Join-Path $core.DirectoryName "$name.dll"))
-    }
-    $arguments += Quote-Argument $hookSource
-    $arguments += Quote-Argument $settingsSource
-
-    $build = [System.Diagnostics.ProcessStartInfo]::new($compiler, ($arguments -join ' '))
+    $build = [System.Diagnostics.ProcessStartInfo]::new((Get-CSharpCompiler), ($arguments -join ' '))
     $build.UseShellExecute = $false
     $build.CreateNoWindow = $true
     $build.RedirectStandardOutput = $true
@@ -289,10 +258,389 @@ function Get-RiverheimConfigHook {
     $buildProcess = [System.Diagnostics.Process]::Start($build)
     $buildOutput = $buildProcess.StandardOutput.ReadToEnd() + $buildProcess.StandardError.ReadToEnd()
     $buildProcess.WaitForExit()
-    if ($buildProcess.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $hookDll)) {
-        throw "Could not build RiverheimConfigHook.cs and RiverheimSettings.cs:`n$buildOutput"
+    if ($buildProcess.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $Output)) {
+        throw "Could not build $(@($Sources | ForEach-Object { Split-Path -Leaf $_ }) -join ' and '):`n$buildOutput"
     }
+}
+
+function Get-AtlasBundle {
+    param([string]$AtlasExe)
+    # AtlasBuilder is a single-file app. Starting it once with no arguments (it only prints its help) unpacks its
+    # assemblies into the cache folder, so hooks can be compiled against them and the installed engine can copy them.
+    # Returns the cache folder for this AtlasBuilder build and the folder holding the unpacked assemblies.
+    $exeInfo = Get-Item -LiteralPath $AtlasExe
+    $cacheDir = Join-Path $hookCacheRoot ('{0}-{1}' -f $exeInfo.Length, $exeInfo.LastWriteTimeUtc.Ticks)
+    $bundleRoot = Join-Path $cacheDir 'bundle'
+    $core = Get-ChildItem -LiteralPath $bundleRoot -Filter 'Riverheim.Core.dll' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($null -eq $core) {
+        [void](New-Item -ItemType Directory -Path $bundleRoot -Force)
+        $unpack = [System.Diagnostics.ProcessStartInfo]::new($AtlasExe)
+        $unpack.UseShellExecute = $false
+        $unpack.CreateNoWindow = $true
+        $unpack.RedirectStandardOutput = $true
+        $unpack.RedirectStandardError = $true
+        $unpack.EnvironmentVariables['DOTNET_BUNDLE_EXTRACT_BASE_DIR'] = $bundleRoot
+        $unpackProcess = [System.Diagnostics.Process]::Start($unpack)
+        [void]$unpackProcess.StandardOutput.ReadToEndAsync()
+        [void]$unpackProcess.StandardError.ReadToEndAsync()
+        if (-not $unpackProcess.WaitForExit(60000)) {
+            $unpackProcess.Kill()
+            throw 'AtlasBuilder did not finish unpacking within 60 seconds.'
+        }
+        $core = Get-ChildItem -LiteralPath $bundleRoot -Filter 'Riverheim.Core.dll' -File -Recurse | Select-Object -First 1
+        if ($null -eq $core) { throw 'Could not find the unpacked AtlasBuilder assemblies.' }
+    }
+    return [pscustomobject]@{ CacheDir = $cacheDir; Root = $bundleRoot; AssemblyDir = $core.DirectoryName }
+}
+
+function Get-RiverheimConfigHook {
+    param([string]$AtlasExe, [pscustomobject]$Engine)
+    # Builds RiverheimConfigHook.cs together with RiverheimSettings.cs (the mod's settings table) into a small DLL,
+    # against the Riverheim that will draw the map (the installed one, or AtlasBuilder's own). Rebuilt only when
+    # AtlasBuilder, that Riverheim or one of the .cs files changes.
+    if (-not (Test-Path -LiteralPath $hookSource -PathType Leaf)) {
+        throw 'RiverheimConfigHook.cs was not found next to the launcher.'
+    }
+    if (-not (Test-Path -LiteralPath $settingsSource -PathType Leaf)) {
+        throw 'RiverheimSettings.cs was not found next to the launcher.'
+    }
+    if ($Engine -and $Engine.Installed) {
+        $hookDll = Join-Path $Engine.Dir 'RiverheimConfigHook.dll'
+        $referenceDir = $Engine.AssemblyDir
+    } else {
+        $bundle = Get-AtlasBundle -AtlasExe $AtlasExe
+        $hookDll = Join-Path $bundle.CacheDir 'RiverheimConfigHook.dll'
+        $referenceDir = $bundle.AssemblyDir
+    }
+    $newestSource = @((Get-Item -LiteralPath $hookSource).LastWriteTimeUtc, (Get-Item -LiteralPath $settingsSource).LastWriteTimeUtc) | Sort-Object -Descending | Select-Object -First 1
+    if ((Test-Path -LiteralPath $hookDll) -and (Get-Item -LiteralPath $hookDll).LastWriteTimeUtc -ge $newestSource) {
+        return $hookDll
+    }
+    # netstandard: the installed Riverheim.dll targets .NET Standard 2.1.
+    Invoke-CSharpCompiler -Output $hookDll -Sources @($hookSource, $settingsSource) -ReferenceDirectory $referenceDir `
+        -References @('System.Private.CoreLib', 'System.Runtime', 'System.Console', 'System.Collections', 'netstandard', 'Riverheim.Core')
     return $hookDll
+}
+
+# ---- Riverheim engine --------------------------------------------------------------------------------------------
+# AtlasBuilder 1.0.0 bundles an older Riverheim than the one players run, so its maps can differ from the game.
+# With the "Installed Riverheim" engine the launcher makes AtlasBuilder draw with the player's own Riverheim.dll:
+#   1. AtlasBuilder's unpacked assemblies are copied to a cache folder, with Riverheim.Core.dll replaced by the
+#      installed Riverheim.dll (renamed, since AtlasBuilder looks for "Riverheim.Core"), and AtlasBuilder's Default
+#      preset pointed at the preset version that Riverheim gives new worlds. Both are done with Mono.Cecil, which
+#      BepInEx already ships in BepInEx\core.
+#   2. AtlasBuilder's own, unmodified exe is started with DOTNET_BUNDLE_EXTRACT_BASE_DIR pointing at that folder,
+#      so it loads those files, and with a small startup hook that finds the BepInEx and Unity assemblies
+#      Riverheim.dll refers to (in BepInEx\core and Valheim's Managed folder; nothing is copied from them).
+# Nothing is downloaded, and no game, mod or AtlasBuilder file is changed. Everything lives under %LocalAppData%.
+$engineFormat = 'e1'
+$depsHookCode = @'
+// Lets AtlasBuilder load an installed Riverheim.dll: resolves the BepInEx, Harmony and Unity assemblies it refers
+// to from the folders listed in RIVERHEIM_DEPS_DIR (separated by ';'). Written by the Riverheim AtlasBuilder UI.
+using System;
+using System.IO;
+using System.Reflection;
+
+public static class StartupHook
+{
+    public static void Initialize()
+    {
+        string list = Environment.GetEnvironmentVariable("RIVERHEIM_DEPS_DIR");
+        if (string.IsNullOrEmpty(list)) return;
+        string[] directories = list.Split(';');
+        AppDomain.CurrentDomain.AssemblyResolve += delegate(object sender, ResolveEventArgs args)
+        {
+            string file = new AssemblyName(args.Name).Name + ".dll";
+            foreach (string directory in directories)
+            {
+                if (directory.Length == 0) continue;
+                string path = Path.Combine(directory, file);
+                if (File.Exists(path)) return Assembly.LoadFrom(path);
+            }
+            return null;
+        };
+    }
+}
+'@
+$engineBuilderCode = @'
+using System;
+using System.IO;
+using Mono.Cecil;
+using Mono.Cecil.Cil;
+
+public static class RiverheimEngineBuilder
+{
+    // Writes riverheimDll as Riverheim.Core.dll and AtlasBuilder's Riverheim.Dev.dll with its Default preset version
+    // set to the one Riverheim gives new worlds. Returns that preset version.
+    public static int Build(string riverheimDll, string devDll, string outDir, string[] searchDirs)
+    {
+        DefaultAssemblyResolver resolver = new DefaultAssemblyResolver();
+        foreach (string dir in searchDirs) { if (Directory.Exists(dir)) resolver.AddSearchDirectory(dir); }
+        ReaderParameters parameters = new ReaderParameters();
+        parameters.InMemory = true;
+        parameters.AssemblyResolver = resolver;
+
+        AssemblyDefinition core = AssemblyDefinition.ReadAssembly(riverheimDll, parameters);
+        TypeDefinition manager = core.MainModule.GetType("Riverheim.Configuration.ConfigManager");
+        if (manager == null) throw new InvalidOperationException("this Riverheim.dll has no ConfigManager, so AtlasBuilder cannot use it (Riverheim 1.1 or newer is needed)");
+        FieldDefinition versionField = null;
+        foreach (FieldDefinition field in manager.Fields) { if (field.Name == "PRESET_DEFAULT_VERSION") versionField = field; }
+        if (versionField == null || !versionField.HasConstant) throw new InvalidOperationException("this Riverheim.dll does not say which preset version new worlds get");
+        int version = Convert.ToInt32(versionField.Constant);
+        core.Name.Name = "Riverheim.Core";
+        core.MainModule.Name = "Riverheim.Core.dll";
+        core.Write(Path.Combine(outDir, "Riverheim.Core.dll"));
+
+        AssemblyDefinition dev = AssemblyDefinition.ReadAssembly(devDll, parameters);
+        int patched = 0;
+        foreach (TypeDefinition type in dev.MainModule.GetTypes())
+        {
+            foreach (MethodDefinition method in type.Methods)
+            {
+                if (!method.HasBody) continue;
+                Mono.Collections.Generic.Collection<Instruction> instructions = method.Body.Instructions;
+                for (int i = 0; i + 2 < instructions.Count; i++)
+                {
+                    MethodReference constructor = instructions[i + 2].Operand as MethodReference;
+                    if (instructions[i].OpCode == OpCodes.Ldstr && (instructions[i].Operand as string) == "builtin.amur" &&
+                        constructor != null && constructor.DeclaringType.Name == "WorldSettings")
+                    {
+                        instructions[i + 1].OpCode = OpCodes.Ldc_I4;
+                        instructions[i + 1].Operand = version;
+                        patched++;
+                    }
+                }
+            }
+        }
+        if (patched == 0) throw new InvalidOperationException("could not find AtlasBuilder's Default preset, so this AtlasBuilder version is not supported");
+        dev.Write(Path.Combine(outDir, "Riverheim.Dev.dll"));
+        return version;
+    }
+}
+'@
+
+function Get-LauncherState {
+    try {
+        if (Test-Path -LiteralPath $launcherStatePath -PathType Leaf) { return (Get-Content -LiteralPath $launcherStatePath -Raw | ConvertFrom-Json) }
+    } catch { }
+    return [pscustomobject]@{}
+}
+
+function Save-LauncherState {
+    param([string]$Name, [string]$Value)
+    try {
+        $state = Get-LauncherState
+        $state | Add-Member -NotePropertyName $Name -NotePropertyValue $Value -Force
+        [void](New-Item -ItemType Directory -Path $hookCacheRoot -Force)
+        $state | ConvertTo-Json | Set-Content -LiteralPath $launcherStatePath -Encoding UTF8
+    } catch { }
+}
+
+function Get-RiverheimVersion {
+    param([string]$Path)
+    try {
+        $version = [System.Reflection.AssemblyName]::GetAssemblyName($Path).Version
+        return '{0}.{1}.{2}' -f $version.Major, $version.Minor, $version.Build
+    } catch { return '' }
+}
+
+function Find-InstalledRiverheim {
+    param([string]$AtlasExe)
+    # The launcher sits next to AtlasBuilder in <profile>\BepInEx\plugins\Gurebu-Riverheim_AtlasBuilder, so the
+    # Riverheim mod of the same profile is normally in plugins\Gurebu-Riverheim.
+    $saved = (Get-LauncherState).RiverheimDll
+    if ($saved -and (Test-Path -LiteralPath $saved -PathType Leaf)) { return $saved }
+    try {
+        $plugins = Split-Path -Parent (Split-Path -Parent $AtlasExe)
+        $candidate = Join-Path $plugins 'Gurebu-Riverheim\Riverheim.dll'
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) { return $candidate }
+        foreach ($folder in @(Get-ChildItem -LiteralPath $plugins -Directory -ErrorAction SilentlyContinue)) {
+            $candidate = Join-Path $folder.FullName 'Riverheim.dll'
+            if (Test-Path -LiteralPath $candidate -PathType Leaf) { return $candidate }
+        }
+    } catch { }
+    return ''
+}
+
+function Find-BepInExCore {
+    param([string]$RiverheimDll)
+    # Walks up from the Riverheim mod to the profile's BepInEx\core.
+    try {
+        $directory = Split-Path -Parent $RiverheimDll
+        while ($directory) {
+            foreach ($candidate in @((Join-Path $directory 'core'), (Join-Path $directory 'BepInEx\core'))) {
+                if (Test-Path -LiteralPath (Join-Path $candidate 'Mono.Cecil.dll') -PathType Leaf) { return $candidate }
+            }
+            $parent = Split-Path -Parent $directory
+            if ($parent -eq $directory) { break }
+            $directory = $parent
+        }
+    } catch { }
+    return ''
+}
+
+function Test-ValheimDir {
+    param([string]$Path)
+    # [IO.Path] rather than Join-Path here and below: Join-Path fails on a drive that is not connected, and Steam's
+    # library list can name one.
+    if (-not $Path) { return $false }
+    try { return [System.IO.File]::Exists([System.IO.Path]::Combine($Path, 'valheim_Data\Managed\assembly_valheim.dll')) } catch { return $false }
+}
+
+function Find-ValheimDir {
+    # The folder that holds valheim.exe: remembered from last time, or found through Steam's library list.
+    $saved = (Get-LauncherState).ValheimDir
+    if (Test-ValheimDir $saved) { return $saved }
+    $libraries = [System.Collections.Generic.List[string]]::new()
+    foreach ($key in 'HKCU:\Software\Valve\Steam', 'HKLM:\SOFTWARE\WOW6432Node\Valve\Steam', 'HKLM:\SOFTWARE\Valve\Steam') {
+        try {
+            $properties = Get-ItemProperty -LiteralPath $key -ErrorAction Stop
+            foreach ($name in 'SteamPath', 'InstallPath') {
+                if ($properties.$name) { $libraries.Add(($properties.$name -replace '/', '\')) }
+            }
+        } catch { }
+    }
+    foreach ($steam in @($libraries)) {
+        try {
+            $vdf = [System.IO.Path]::Combine($steam, 'steamapps\libraryfolders.vdf')
+            if ([System.IO.File]::Exists($vdf)) {
+                foreach ($match in [regex]::Matches([System.IO.File]::ReadAllText($vdf), '"path"\s+"([^"]+)"')) {
+                    $libraries.Add(($match.Groups[1].Value -replace '\\\\', '\'))
+                }
+            }
+        } catch { }
+    }
+    foreach ($drive in [System.IO.DriveInfo]::GetDrives()) {
+        if ($drive.DriveType -ne 'Fixed' -or -not $drive.IsReady) { continue }
+        foreach ($relative in 'SteamLibrary', 'Steam', 'Program Files (x86)\Steam', 'Program Files\Steam', 'Games\Steam') {
+            $libraries.Add([System.IO.Path]::Combine($drive.RootDirectory.FullName, $relative))
+        }
+    }
+    foreach ($library in $libraries) {
+        try { $candidate = [System.IO.Path]::Combine($library, 'steamapps\common\Valheim') } catch { continue }
+        if (Test-ValheimDir $candidate) { return $candidate }
+    }
+    return ''
+}
+
+function Get-EngineSources {
+    param([string]$AtlasExe)
+    # Everything the installed engine needs, found automatically. Missing lists what could not be found.
+    $riverheimDll = Find-InstalledRiverheim -AtlasExe $AtlasExe
+    $bepInExCore = if ($riverheimDll) { Find-BepInExCore -RiverheimDll $riverheimDll } else { '' }
+    $valheimDir = Find-ValheimDir
+    $missing = @()
+    if (-not $riverheimDll) { $missing += 'Riverheim' }
+    elseif (-not $bepInExCore) { $missing += 'BepInEx' }
+    if (-not $valheimDir) { $missing += 'Valheim' }
+    return [pscustomobject]@{
+        RiverheimDll = $riverheimDll
+        Version = if ($riverheimDll) { Get-RiverheimVersion $riverheimDll } else { '' }
+        BepInExCore = $bepInExCore
+        ValheimDir = $valheimDir
+        Missing = $missing
+    }
+}
+
+function Get-FileShortHash {
+    param([string]$Path)
+    $sha = [System.Security.Cryptography.SHA1]::Create()
+    $stream = [System.IO.File]::OpenRead($Path)
+    try {
+        $bytes = $sha.ComputeHash($stream)
+        return (-join ($bytes[0..5] | ForEach-Object { $_.ToString('x2') }))
+    } finally {
+        $stream.Dispose()
+        $sha.Dispose()
+    }
+}
+
+function Start-AtlasBuilderProcess {
+    param([string]$AtlasExe, [string]$Arguments, [hashtable]$Environment, [string]$WindowStyle = 'Normal')
+    # AtlasBuilder needs a real console window (its progress display crashes on redirected output), so it is started
+    # through the shell. It inherits the launcher's environment, so the variables are set only around the start.
+    $process = [System.Diagnostics.Process]::new()
+    $process.StartInfo.FileName = $AtlasExe
+    $process.StartInfo.Arguments = $Arguments
+    $process.StartInfo.UseShellExecute = $true
+    $process.StartInfo.WindowStyle = $WindowStyle
+    try {
+        foreach ($name in $Environment.Keys) { Set-Item -LiteralPath "Env:$name" -Value $Environment[$name] }
+        [void]$process.Start()
+    } finally {
+        foreach ($name in $Environment.Keys) { Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue }
+    }
+    return $process
+}
+
+function Get-InstalledEngine {
+    param([string]$AtlasExe, [pscustomobject]$Sources)
+    # Prepares (once per AtlasBuilder and Riverheim build) and returns the installed Riverheim engine.
+    if ($Sources.Missing.Count -gt 0) { throw "Not found: $($Sources.Missing -join ', '). Click Find... next to the Riverheim choice to point the launcher at it." }
+    $bundle = Get-AtlasBundle -AtlasExe $AtlasExe
+    $key = '{0}-{1}-{2}' -f $engineFormat, (Get-FileShortHash $Sources.RiverheimDll), (Split-Path -Leaf $bundle.CacheDir)
+    $engineDir = Join-Path $hookCacheRoot "engines\$key"
+    $extractRoot = Join-Path $engineDir 'extract'
+    $depsHook = Join-Path $engineDir 'RiverheimDepsHook.dll'
+    $readyFile = Join-Path $engineDir 'ready.json'
+    $depsDirs = @($Sources.BepInExCore, (Join-Path $Sources.ValheimDir 'valheim_Data\Managed')) -join ';'
+    $relative = $bundle.AssemblyDir.Substring($bundle.Root.Length).TrimStart('\')
+    $engine = [pscustomobject]@{
+        Installed = $true
+        Dir = $engineDir
+        ExtractRoot = $extractRoot
+        AssemblyDir = Join-Path $extractRoot $relative
+        DepsHook = $depsHook
+        DepsDirs = $depsDirs
+        Version = $Sources.Version
+        PresetVersion = 0
+        Label = "Installed Riverheim $($Sources.Version)"
+    }
+    if (Test-Path -LiteralPath $readyFile -PathType Leaf) {
+        $ready = Get-Content -LiteralPath $readyFile -Raw | ConvertFrom-Json
+        $engine.PresetVersion = [int]$ready.PresetVersion
+        return $engine
+    }
+
+    if (Test-Path -LiteralPath $engineDir) { Remove-Item -LiteralPath $engineDir -Recurse -Force }
+    [void](New-Item -ItemType Directory -Path $extractRoot -Force)
+    Copy-Item -Path (Join-Path $bundle.Root '*') -Destination $extractRoot -Recurse -Force
+
+    $cecil = Join-Path $Sources.BepInExCore 'Mono.Cecil.dll'
+    if (-not ('RiverheimEngineBuilder' -as [type])) {
+        Add-Type -Path $cecil
+        Add-Type -TypeDefinition $engineBuilderCode -ReferencedAssemblies @($cecil)
+    }
+    try {
+        $searchDirs = [string[]]@((Split-Path -Parent $Sources.RiverheimDll), $Sources.BepInExCore, (Join-Path $Sources.ValheimDir 'valheim_Data\Managed'), $bundle.AssemblyDir)
+        $engine.PresetVersion = [RiverheimEngineBuilder]::Build($Sources.RiverheimDll, (Join-Path $bundle.AssemblyDir 'Riverheim.Dev.dll'), $engine.AssemblyDir, $searchDirs)
+    } catch {
+        $inner = $_.Exception
+        while ($inner.InnerException) { $inner = $inner.InnerException }
+        throw "Could not prepare Riverheim $($Sources.Version) for AtlasBuilder: $($inner.Message)"
+    }
+
+    $depsSource = Join-Path $engineDir 'RiverheimDepsHook.cs'
+    Set-Content -LiteralPath $depsSource -Value $depsHookCode -Encoding UTF8
+    Invoke-CSharpCompiler -Output $depsHook -Sources @($depsSource) -ReferenceDirectory $engine.AssemblyDir -References @('System.Private.CoreLib', 'System.Runtime', 'System.Console')
+
+    # Draw one small map to prove the engine works before trusting it with real maps.
+    $checkDir = Join-Path $engineDir 'check'
+    [void](New-Item -ItemType Directory -Path $checkDir -Force)
+    $checkArguments = @('--path', (Quote-Argument $checkDir), '--seed', 'EngineCheck', '--mode', 'Landmass', '--resolution', '256', '--count', '-1', '--preset', 'Default') -join ' '
+    $check = Start-AtlasBuilderProcess -AtlasExe $AtlasExe -Arguments $checkArguments -WindowStyle 'Minimized' -Environment @{
+        DOTNET_BUNDLE_EXTRACT_BASE_DIR = $extractRoot; DOTNET_STARTUP_HOOKS = $depsHook; RIVERHEIM_DEPS_DIR = $depsDirs
+    }
+    if (-not $check.WaitForExit(180000)) {
+        try { $check.Kill() } catch { }
+        throw "Riverheim $($Sources.Version) did not finish a test map within 3 minutes."
+    }
+    if (-not (Get-ChildItem -LiteralPath $checkDir -Filter '*.png' -File -ErrorAction SilentlyContinue)) {
+        throw "AtlasBuilder could not draw a test map with Riverheim $($Sources.Version) (exit code $($check.ExitCode))."
+    }
+    [ordered]@{ RiverheimDll = $Sources.RiverheimDll; Version = $Sources.Version; PresetVersion = $engine.PresetVersion; PreparedAtUtc = [DateTime]::UtcNow.ToString('o') } |
+        ConvertTo-Json | Set-Content -LiteralPath $readyFile -Encoding UTF8
+    return $engine
 }
 
 function Get-ChangedWorldSettings {
@@ -674,6 +1022,40 @@ $settingsPanel.BorderStyle = 'FixedSingle'
 $settingsPanel.BackColor = [System.Drawing.Color]::White
 $form.Controls.Add($settingsPanel)
 
+# Riverheim engine row, under the AtlasBuilder row: everything placed below it moves down one row.
+$engineRowShift = 34
+foreach ($control in @($form.Controls)) {
+    if ($control.Left -lt 660 -and $control.Top -ge 110) {
+        $control.Top += $engineRowShift
+        if ($control -eq $settingsPanel) { $control.Height -= $engineRowShift }
+    }
+}
+$form.Controls.Add((New-Label 'Riverheim' 18 112))
+$engineBox = [System.Windows.Forms.ComboBox]::new()
+$engineBox.Location = [System.Drawing.Point]::new(125, 112)
+$engineBox.Size = [System.Drawing.Size]::new(200, 23)
+$engineBox.DropDownStyle = 'DropDownList'
+[void]$engineBox.Items.AddRange([string[]]@($engineInstalledText, $engineBundledText))
+$engineBox.SelectedItem = $engineBundledText
+$form.Controls.Add($engineBox)
+
+$engineInfo = [System.Windows.Forms.Label]::new()
+$engineInfo.Location = [System.Drawing.Point]::new(331, 112)
+$engineInfo.Size = [System.Drawing.Size]::new(228, 23)
+$engineInfo.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+$engineInfo.AutoEllipsis = $true
+$engineInfo.ForeColor = [System.Drawing.Color]::DimGray
+$form.Controls.Add($engineInfo)
+
+$browseEngine = [System.Windows.Forms.Button]::new()
+$browseEngine.Text = 'Find...'
+$browseEngine.Location = [System.Drawing.Point]::new(564, 111)
+$browseEngine.Size = [System.Drawing.Size]::new(78, 25)
+$form.Controls.Add($browseEngine)
+$engineTip = "Which Riverheim draws the map.`n`n" + (Format-TipText 'Installed: the Riverheim mod in this profile, the same one your game runs, so the map matches your world. The first map takes about half a minute longer while the launcher prepares it; after that it is as fast as before.') + "`n`n" + (Format-TipText 'Bundled: the older Riverheim inside AtlasBuilder 1.0.0. Coastlines, poles and biome edges can differ from your game.')
+foreach ($target in @($engineBox, $engineInfo)) { $toolTip.SetToolTip($target, $engineTip) }
+$toolTip.SetToolTip($browseEngine, "Point the launcher at a Riverheim.dll (for example from another profile),`nor at your Valheim folder if it was not found.")
+
 $fieldFont = [System.Drawing.Font]::new('Segoe UI', 9)
 $fieldFontChanged = [System.Drawing.Font]::new('Segoe UI Semibold', 9)
 $groupFont = [System.Drawing.Font]::new('Segoe UI Semibold', 9.5)
@@ -967,6 +1349,70 @@ $appendLog = {
     if ($Text) { $logBox.AppendText($Text + [Environment]::NewLine) }
 }
 
+$script:engineSources = $null
+function Update-EngineInfo {
+    # Finds the installed Riverheim, BepInEx and Valheim again and shows the result next to the engine choice.
+    $script:engineSources = Get-EngineSources -AtlasExe $exeBox.Text.Trim()
+    $sources = $script:engineSources
+    $installed = $engineBox.SelectedItem -eq $engineInstalledText
+    if ($sources.Missing.Count -eq 0) {
+        $engineInfo.Text = "Riverheim $($sources.Version) found"
+        $engineInfo.ForeColor = if ($installed) { [System.Drawing.Color]::FromArgb(16, 124, 16) } else { [System.Drawing.Color]::DimGray }
+        $detail = "Riverheim $($sources.Version): $($sources.RiverheimDll)`nBepInEx: $($sources.BepInExCore)`nValheim: $($sources.ValheimDir)"
+    } else {
+        $engineInfo.Text = switch ($sources.Missing[0]) {
+            'Riverheim' { 'Riverheim mod not found' }
+            'BepInEx' { 'BepInEx not found' }
+            default { 'Valheim folder not found' }
+        }
+        $engineInfo.ForeColor = if ($installed) { [System.Drawing.Color]::Firebrick } else { [System.Drawing.Color]::DimGray }
+        $detail = switch ($sources.Missing[0]) {
+            'Riverheim' { 'The Riverheim mod was not found next to AtlasBuilder. Click Find... and choose Riverheim.dll from the profile you play with (BepInEx\plugins\Gurebu-Riverheim).' }
+            'BepInEx' { "BepInEx\core was not found above $($sources.RiverheimDll). Click Find... and choose the Riverheim.dll inside a Thunderstore or r2modman profile." }
+            default { 'Your Valheim install was not found. Click Find... and choose the folder that holds valheim.exe (in Steam: right-click Valheim, Manage, Browse local files).' }
+        }
+    }
+    $toolTip.SetToolTip($engineInfo, $detail)
+}
+
+$engineBox.Add_SelectedIndexChanged({
+    Save-LauncherState -Name 'Engine' -Value $(if ($engineBox.SelectedItem -eq $engineInstalledText) { 'Installed' } else { 'Bundled' })
+    if ($null -ne $script:engineSources) { Update-EngineInfo }
+})
+
+$browseEngine.Add_Click({
+    if ($null -eq $script:engineSources) { Update-EngineInfo }
+    $sources = $script:engineSources
+    if ($sources.RiverheimDll -and $sources.BepInExCore -and -not $sources.ValheimDir) {
+        $folderDialog = [System.Windows.Forms.FolderBrowserDialog]::new()
+        $folderDialog.Description = 'Choose your Valheim folder, the one that holds valheim.exe (in Steam: right-click Valheim > Manage > Browse local files).'
+        if ($folderDialog.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) { return }
+        $chosen = $folderDialog.SelectedPath
+        # Accept a pick of valheim_Data or Managed too.
+        foreach ($candidate in @($chosen, (Split-Path -Parent $chosen), (Split-Path -Parent (Split-Path -Parent $chosen)))) {
+            if (Test-ValheimDir $candidate) { Save-LauncherState -Name 'ValheimDir' -Value $candidate; break }
+        }
+        if (-not (Test-ValheimDir (Get-LauncherState).ValheimDir)) {
+            [System.Windows.Forms.MessageBox]::Show("That folder does not contain Valheim.`nChoose the folder that holds valheim.exe.", 'Valheim folder', 'OK', 'Warning') | Out-Null
+            return
+        }
+    } else {
+        $fileDialog = [System.Windows.Forms.OpenFileDialog]::new()
+        $fileDialog.Title = 'Choose Riverheim.dll from the profile you play with (BepInEx\plugins\Gurebu-Riverheim)'
+        $fileDialog.Filter = 'Riverheim mod|Riverheim.dll'
+        if ($sources.RiverheimDll) { $fileDialog.InitialDirectory = Split-Path -Parent $sources.RiverheimDll }
+        if ($fileDialog.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) { return }
+        if (-not (Get-RiverheimVersion $fileDialog.FileName)) {
+            [System.Windows.Forms.MessageBox]::Show('That file is not the Riverheim mod.', 'Riverheim', 'OK', 'Warning') | Out-Null
+            return
+        }
+        Save-LauncherState -Name 'RiverheimDll' -Value $fileDialog.FileName
+    }
+    $engineBox.SelectedItem = $engineInstalledText
+    Update-EngineInfo
+    $status.Text = if ($script:engineSources.Missing.Count -eq 0) { "Maps will be drawn with Riverheim $($script:engineSources.Version)." } else { $engineInfo.Text }
+})
+
 function Update-WorldSettingsSummary {
     $changedCount = 0
     foreach ($field in $worldFields) {
@@ -1144,6 +1590,13 @@ function Show-SettingsGuide {
 AtlasBuilder
 The Riverheim.AtlasBuilder.exe program used to create maps. Leave this on its detected path unless your Thunderstore profile moved.
 
+Riverheim
+Which Riverheim draws the map.
+- Installed (matches your game): the Riverheim mod in this profile, the same one your game runs, so maps match your worlds. The launcher finds it next to AtlasBuilder, plus your Valheim install through Steam. The first map with a new Riverheim version takes about half a minute longer while the launcher prepares it; after that it is as fast as before. If your antivirus asks about AtlasBuilder or PowerShell during that first map, allow it.
+- Bundled (older, can differ): the Riverheim inside AtlasBuilder 1.0.0. Coastlines, poles and biome edges can differ from your game, and the lowland Black Forest settings do nothing.
+The text next to the choice says which Riverheim was found. If it says something was not found, click Find... and pick it: Riverheim.dll (in your profile's BepInEx\plugins\Gurebu-Riverheim), or your Valheim folder (in Steam: right-click Valheim, Manage, Browse local files). Find... also lets you point at the Riverheim.dll of another profile. Every map records which Riverheim drew it, in its caption, its .riverheim.json file and Map history.
+How it works: the launcher copies AtlasBuilder's unpacked files to %LocalAppData%\RiverheimAtlasBuilderUI, swaps in your Riverheim.dll and points AtlasBuilder's Default preset at the version Riverheim gives new worlds (using Mono.Cecil, which BepInEx already includes), then starts AtlasBuilder's own exe on those files. Nothing is downloaded, and no game, mod or AtlasBuilder files are changed.
+
 World seed
 Your Valheim world seed. With World count set to -1, AtlasBuilder renders this exact seed. Separate several seeds with commas to make one job per seed.
 
@@ -1182,7 +1635,7 @@ Stamp seed and settings under each map
 Adds a caption strip below each map image (the map itself is not covered) with the seed, map mode, preset and world settings, so the picture explains itself when shared. Untick it for clean map images.
 
 Custom world settings
-Tick this to draw maps with your own world settings: world size and depths, rivers, lakes, biome bias, biome amounts (how much contested land each biome takes), biome bands (how far from spawn each biome appears), landmass shape, mountains, river features, sub-biomes, terrain feel and the polar belts. These are exactly the settings the Riverheim Config mod has (the list comes from the mod's own settings file), and every field starts at the Riverheim 1.2.1 default. A field left at its default leaves Riverheim's own value alone. Changed fields turn blue; hover the blue ? next to a field to see what it does. A few settings for Riverheim 1.1.1's lowland Black Forest variant cannot be previewed, because AtlasBuilder 1.0.0 bundles an older Riverheim; their tooltip says so.
+Tick this to draw maps with your own world settings: world size and depths, rivers, lakes, biome bias, biome amounts (how much contested land each biome takes), biome bands (how far from spawn each biome appears), landmass shape, mountains, river features, sub-biomes, terrain feel and the polar belts. These are exactly the settings the Riverheim Config mod has (the list comes from the mod's own settings file), and every field starts at the Riverheim 1.2.1 default. A field left at its default leaves Riverheim's own value alone. Changed fields turn blue; hover the blue ? next to a field to see what it does. The lowland Black Forest settings only show with the Installed choice; the Riverheim bundled with AtlasBuilder is too old to have them.
 Import config fills the fields from a Riverheim Config mod file (com.valheim.riverheim.config.cfg in your profile's BepInEx\config folder), so maps match your server. Reset puts every field back to its default. Export config saves the fields as a Riverheim Config mod file for your server or profile, backing up any existing file first; restart the game or server to use it.
 
 How custom world settings work: the first time you use them, the launcher builds RiverheimConfigHook.cs together with RiverheimSettings.cs (two small, readable files next to the launcher; the second one is the Riverheim Config mod's own settings table) into a DLL with the C# compiler that ships with Windows, and keeps it in %LocalAppData%\RiverheimAtlasBuilderUI. When generating, it writes your settings to a file in that folder and tells .NET to load the DLL into AtlasBuilder (a .NET startup hook). The hook fills AtlasBuilder's Experimental preset slot with the Default world plus your settings, and the launcher runs that preset. Nothing is downloaded, and no game, mod or AtlasBuilder files are changed.
@@ -1312,6 +1765,7 @@ function Start-NextJob {
     foreach ($mode in @($next.Modes)) { $script:modeQueue.Enqueue($mode) }
     $tagText = if ($next.Tag) { " ($($next.Tag))" } else { '' }
     & $appendLog "--- Job $($next.Number): seed $($next.Seed)$tagText, $(@($next.Modes).Count) mode(s), settings $($next.SettingsId) ---"
+    & $appendLog $(if ($next.Engine) { "Riverheim: installed $($next.Engine.Version)" } else { 'Riverheim: bundled with AtlasBuilder 1.0.0 (older)' })
     if ($next.CustomWorld) {
         $changedText = if (@($next.ChangedSettings).Count -gt 0) { @($next.ChangedSettings) -join ', ' } else { 'none (Riverheim defaults)' }
         & $appendLog "Custom world settings changed: $changedText"
@@ -1363,6 +1817,8 @@ function Start-NextGeneration {
             WorldSettings = $batch.WorldSettings
             ExpandWorldSizeStretch = $batch.EwsStretch
             Executable = $batch.Executable
+            Engine = if ($batch.Engine) { 'Installed' } else { 'Bundled' }
+            RiverheimVersion = if ($batch.Engine) { $batch.Engine.Version } else { 'AtlasBuilder 1.0.0 bundled' }
         }
     }
 
@@ -1371,18 +1827,21 @@ function Start-NextGeneration {
     & $appendLog "Running $mode ($($batch.CompletedModes + 1)/$modeCount): $($batch.Executable) $($arguments -join ' ')"
     $status.Text = "Job $($batch.Number): seed $($batch.Seed), $mode ($($batch.CompletedModes + 1) of $modeCount). $waiting job(s) waiting."
 
-    $process = [System.Diagnostics.Process]::new()
-    $process.StartInfo.FileName = $batch.Executable
-    $process.StartInfo.Arguments = $arguments -join ' '
-    $process.StartInfo.UseShellExecute = $true
+    # AtlasBuilder inherits these from the launcher; they are removed again as soon as it has started.
+    $environment = @{}
+    $hooks = @()
+    if ($batch.Engine) {
+        $environment['DOTNET_BUNDLE_EXTRACT_BASE_DIR'] = $batch.Engine.ExtractRoot
+        $environment['RIVERHEIM_DEPS_DIR'] = $batch.Engine.DepsDirs
+        $hooks += $batch.Engine.DepsHook
+    }
+    if ($batch.CustomWorld) {
+        $hooks += $batch.HookPath
+        $environment['RIVERHEIM_CONFIG_PATH'] = $batch.SettingsFile
+    }
+    if ($hooks.Count -gt 0) { $environment['DOTNET_STARTUP_HOOKS'] = $hooks -join ';' }
     try {
-        if ($batch.CustomWorld) {
-            # AtlasBuilder inherits these from the launcher; they are removed again as soon as it has started.
-            $env:DOTNET_STARTUP_HOOKS = $batch.HookPath
-            $env:RIVERHEIM_CONFIG_PATH = $batch.SettingsFile
-        }
-        [void]$process.Start()
-        $script:activeProcess = $process
+        $script:activeProcess = Start-AtlasBuilderProcess -AtlasExe $batch.Executable -Arguments ($arguments -join ' ') -Environment $environment
         $completionTimer.Start()
     } catch {
         Remove-Item -LiteralPath $incomingPath -Recurse -Force -ErrorAction SilentlyContinue
@@ -1391,9 +1850,6 @@ function Start-NextGeneration {
         $script:modeQueue.Clear()
         Update-QueueList
         Start-NextJob
-    } finally {
-        Remove-Item Env:DOTNET_STARTUP_HOOKS -ErrorAction SilentlyContinue
-        Remove-Item Env:RIVERHEIM_CONFIG_PATH -ErrorAction SilentlyContinue
     }
 }
 
@@ -1519,7 +1975,7 @@ function Show-MapHistory {
         } else {
             'Custom: all Riverheim defaults'
         }
-        $details.Text = "Seed: $($settings.Seed)`r`nMode: $($settings.Mode)`r`nResolution: $($settings.Resolution)`r`nWorld count: $($settings.Count)`r`nGrid: $($settings.Grid)`r`nWhole atlas: $($settings.Whole)`r`nPreset: $($settings.Preset)`r`nTag: $($settings.Tag)`r`nSettings id: $($settings.SettingsId)`r`nWorld settings: $worldText`r`nEWS stretch: $(if ($settings.ExpandWorldSizeStretch) { $settings.ExpandWorldSizeStretch } else { 1 })`r`nGenerated: $($record.GeneratedAtUtc)"
+        $details.Text = "Seed: $($settings.Seed)`r`nMode: $($settings.Mode)`r`nResolution: $($settings.Resolution)`r`nWorld count: $($settings.Count)`r`nGrid: $($settings.Grid)`r`nWhole atlas: $($settings.Whole)`r`nPreset: $($settings.Preset)`r`nTag: $($settings.Tag)`r`nSettings id: $($settings.SettingsId)`r`nWorld settings: $worldText`r`nEWS stretch: $(if ($settings.ExpandWorldSizeStretch) { $settings.ExpandWorldSizeStretch } else { 1 })`r`nRiverheim: $(if ($settings.Engine -eq 'Installed') { "$($settings.RiverheimVersion) (installed)" } else { 'bundled with AtlasBuilder (older)' })`r`nGenerated: $($record.GeneratedAtUtc)"
     }
 
     $refreshList = {
@@ -1623,8 +2079,12 @@ $browseExe.Add_Click({
     $dialog = [System.Windows.Forms.OpenFileDialog]::new()
     $dialog.Filter = 'AtlasBuilder executable|Riverheim.AtlasBuilder.exe|Executables|*.exe'
     if (Test-Path -LiteralPath $exeBox.Text) { $dialog.InitialDirectory = Split-Path -Parent $exeBox.Text }
-    if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $exeBox.Text = $dialog.FileName }
+    if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+        $exeBox.Text = $dialog.FileName
+        Update-EngineInfo
+    }
 })
+$exeBox.Add_Leave({ Update-EngineInfo })
 
 $browseOutput.Add_Click({
     $dialog = [System.Windows.Forms.FolderBrowserDialog]::new()
@@ -1726,6 +2186,11 @@ $openPreviewButton.Add_Click({
     }
 })
 $form.Add_Shown({
+    # Installed Riverheim when it can be found, unless the player chose Bundled last time.
+    $script:engineSources = Get-EngineSources -AtlasExe $exeBox.Text.Trim()
+    $savedEngine = (Get-LauncherState).Engine
+    $engineBox.SelectedItem = if ($savedEngine -ne 'Bundled' -and $script:engineSources.Missing.Count -eq 0) { $engineInstalledText } elseif ($savedEngine -eq 'Installed') { $engineInstalledText } else { $engineBundledText }
+    Update-EngineInfo
     Update-MainPreview -Directory $outputBox.Text.Trim()
     Update-WorldSettingsSummary
     Update-PresetInfo
@@ -1795,6 +2260,26 @@ function New-GenerationJobs {
         return
     }
 
+    $engine = $null
+    if ($engineBox.SelectedItem -eq $engineInstalledText) {
+        $form.Cursor = [System.Windows.Forms.Cursors]::WaitCursor
+        try {
+            if ($null -eq $script:engineSources) { Update-EngineInfo }
+            $status.Text = "Preparing Riverheim $($script:engineSources.Version) for AtlasBuilder (first time only, about half a minute). If your antivirus asks about AtlasBuilder or PowerShell, allow it..."
+            [System.Windows.Forms.Application]::DoEvents()
+            $engine = Get-InstalledEngine -AtlasExe $exe -Sources $script:engineSources
+            $status.Text = "Using installed Riverheim $($engine.Version)."
+        } catch {
+            $status.Text = 'Installed Riverheim is unavailable'
+            $answer = [System.Windows.Forms.MessageBox]::Show("The launcher could not use your installed Riverheim.`n`n$($_.Exception.Message)`n`nDraw with the Riverheim bundled with AtlasBuilder instead? Its maps can differ from your game.", 'Installed Riverheim', 'YesNo', 'Warning')
+            if ($answer -ne [System.Windows.Forms.DialogResult]::Yes) { return }
+            $engineBox.SelectedItem = $engineBundledText
+            $engine = $null
+        } finally {
+            $form.Cursor = [System.Windows.Forms.Cursors]::Default
+        }
+    }
+
     $customWorld = $worldCheck.Checked
     $settingsId = if ($customWorld) { 'custom-' + (Get-ShortHash (@($worldFields | ForEach-Object { "$($_.Key)=$(Format-SettingValue $_.Input.Value)" }) -join ';')) } else { $presetBox.SelectedItem.ToString() }
     $settingsFile = $null
@@ -1806,7 +2291,7 @@ function New-GenerationJobs {
         $form.Cursor = [System.Windows.Forms.Cursors]::WaitCursor
         [System.Windows.Forms.Application]::DoEvents()
         try {
-            $hookPath = Get-RiverheimConfigHook -AtlasExe $exe
+            $hookPath = Get-RiverheimConfigHook -AtlasExe $exe -Engine $engine
             # One file per distinct set of settings, so queued jobs with different settings do not overwrite each other.
             $settingsFile = Join-Path $hookCacheRoot "world-settings-$settingsId.cfg"
             Write-WorldSettingsFile -Path $settingsFile
@@ -1835,7 +2320,11 @@ function New-GenerationJobs {
             $captionRadius = if ($customWorld) { [double]($worldFields | Where-Object { $_.Key -eq 'WorldRadius' }).Input.Value } else { $defaultWorldRadius }
             $captionDetail += 'Expand World Size: {0}x stretch, in-game radius about {1:N0} m' -f (Format-SettingValue $ewsStretchBox.Value), ($captionRadius * [double]$ewsStretchBox.Value)
         }
-        $captionDetail += 'AtlasBuilder preview. AtlasBuilder 1.0.0 uses an older Riverheim than 1.2, so in-game worlds can differ.'
+        $captionDetail += if ($engine) {
+            "Drawn with Riverheim $($engine.Version), the Riverheim installed for the game."
+        } else {
+            'Drawn with the Riverheim bundled with AtlasBuilder 1.0.0, which is older than the mod, so in-game worlds can differ.'
+        }
     }
 
     $tag = ConvertTo-FileTag $tagBox.Text
@@ -1859,6 +2348,7 @@ function New-GenerationJobs {
             ChangedSettings = $changed
             SettingsFile = $settingsFile
             HookPath = $hookPath
+            Engine = $engine
             CaptionDetail = $captionDetail
             EwsStretch = [double]$ewsStretchBox.Value
             Tag = $tag

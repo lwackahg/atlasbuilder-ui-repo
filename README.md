@@ -70,7 +70,7 @@ The settings part is the preset name, or `custom-` plus a short code that is ide
 
 **Custom world settings** lets you draw maps with your own world settings — world size and depths, rivers, lakes, biome bias, **biome amounts** (how much contested land each biome takes), **biome bands** (how far from spawn Meadows reaches and where Swamp, Plains and Mistlands appear), and since 3.0 of the mod also **landmass** shape, **mountains**, **river features**, **sub-biomes**, **terrain feel** and the **polar belts** — exactly the settings, with the same names and Riverheim 1.2.1 defaults, as the [Riverheim Config](https://github.com/lwackahg/Riverheim_Config) mod (the field list is read from the mod's `settings.json`, see [SETTINGS.md](https://github.com/lwackahg/Riverheim_Config/blob/main/SETTINGS.md) for the full reference). Every field starts at the Riverheim default and turns blue when changed; a field left at its default leaves Riverheim's own value alone. Hover the blue **?** next to a field for what it does. **Import config** fills the fields from a Riverheim Config mod file so maps match your server (and also reads `expand_world_size.cfg` from the same folder); **Reset** puts them back. **Export config** writes the fields out as a Riverheim Config mod file for your server or profile, backing up the old file first.
 
-A few settings for Riverheim 1.1.1's lowland Black Forest variant (`ForestLowlandsWeight` and its shaping) have no effect on previews, because AtlasBuilder 1.0.0 bundles an older Riverheim that does not have them; the mod still applies them in game.
+The lowland Black Forest settings (`ForestLowlandsWeight` and its shaping) only show with the **Installed** choice; the Riverheim bundled with AtlasBuilder 1.0.0 is too old to have them.
 
 **Stamp seed and settings under each map** (on by default) adds a caption strip below each image with the seed, map mode, preset, tag and any changed world settings, so a shared map explains itself. The map itself isn't covered.
 
@@ -88,7 +88,20 @@ AtlasBuilder has no option for custom world values, so the launcher adds them th
 
 Nothing is downloaded, nothing runs after AtlasBuilder closes, and no game, mod or AtlasBuilder files are modified. Leave **Custom world settings** unticked and the launcher runs AtlasBuilder exactly as before.
 
-**Maps are a preview, not a guarantee.** AtlasBuilder 1.0.0 bundles an older Riverheim than 1.2, so its maps can differ from worlds generated in game by Riverheim 1.2 — with or without custom settings. (The settings mapping itself is verified: the mod's test suite runs this same hook inside AtlasBuilder with Riverheim 1.2.1, so what differs is only the Riverheim version doing the drawing.)
+With the **Installed** choice the map is drawn by the same Riverheim your game runs, so it matches your world. With **Bundled** it comes from the older Riverheim inside AtlasBuilder 1.0.0 and can differ. See [Which Riverheim draws the map](#which-riverheim-draws-the-map).
+
+## Which Riverheim draws the map
+
+AtlasBuilder 1.0.0 bundles its own copy of Riverheim, and it is older than the mod: for the same seed, its maps differ from a world created in game with Riverheim 1.2 (coastlines, the Deep North and biome edges shift). The **Riverheim** choice under the AtlasBuilder path fixes that:
+
+- **Installed (matches your game)** — the default when it can be found. The launcher draws with the `Riverheim.dll` from your own profile (`BepInEx\plugins\Gurebu-Riverheim`, right next to AtlasBuilder), so maps match your worlds. The text beside the choice shows the version it found.
+- **Bundled (older, can differ)** — what AtlasBuilder shows on its own.
+
+The first map with a new Riverheim version takes about half a minute longer: the launcher prepares a copy of AtlasBuilder's files in `%LocalAppData%\RiverheimAtlasBuilderUI\engines` with your `Riverheim.dll` swapped in (renamed to the name AtlasBuilder looks for) and AtlasBuilder's Default preset pointed at the version Riverheim gives new worlds, using the `Mono.Cecil.dll` that BepInEx already ships. It then draws a small test map to make sure everything works. After that, AtlasBuilder's own, unmodified exe runs on those files, with a small startup hook (built the same way as the custom settings hook) that finds the BepInEx and Unity files `Riverheim.dll` refers to in your profile's `BepInEx\core` and your Valheim install. When Riverheim updates, the launcher notices and prepares the new version by itself.
+
+Nothing is downloaded, and no game, mod or AtlasBuilder file is changed: the only thing taken from your profile is a renamed copy of `Riverheim.dll` in that cache folder, and the BepInEx and Unity files are only read where they are. Every map records which Riverheim drew it, in its caption, its `.riverheim.json` sidecar and **Map history**.
+
+If the launcher can't find something, the text beside the choice turns red and says what; click **Find...** and point at it. **Find...** also lets you pick the `Riverheim.dll` of a different profile. If preparing fails, the launcher says why and offers to draw with the bundled Riverheim instead.
 
 ### Bigger worlds: World radius vs Expand World Size
 
@@ -130,7 +143,10 @@ You should be skeptical of scripts from the internet. That's exactly why this is
 | "Could not prepare custom world settings" | The message includes the compiler output. Delete `%LocalAppData%\RiverheimAtlasBuilderUI` and try again; if it still fails, open an issue with that message. |
 | AtlasBuilder window shows `[Custom world settings] Could not apply settings` | The map was drawn with stock settings. The same line says why. |
 | A bigger World radius makes the map look distorted | Expected — see [Bigger worlds](#bigger-worlds-world-radius-vs-expand-world-size). |
-| Maps don't match my world exactly | Expected — see [Maps are a preview](#about-custom-world-settings). |
+| Maps don't match my world exactly | Check that **Riverheim** says *Installed* and shows the same version as your game, and that custom world settings (if any) match your server's config — **Import config** reads it. With *Bundled*, differences are expected. |
+| "Riverheim mod not found" / "Valheim folder not found" in red | Click **Find...** next to it. Pick `Riverheim.dll` from your profile's `BepInEx\plugins\Gurebu-Riverheim`, or the folder that holds `valheim.exe` (in Steam: right-click Valheim → Manage → Browse local files). |
+| The first map seems stuck at "Preparing Riverheim..." | Your antivirus may be asking whether to allow AtlasBuilder or PowerShell; allow it. Preparing happens once per Riverheim version. |
+| "The launcher could not use your installed Riverheim" | The message says why. Choose **Yes** to draw with the bundled Riverheim for now. Deleting `%LocalAppData%\RiverheimAtlasBuilderUI\engines` makes the launcher prepare from scratch next time. |
 
 ## Requirements
 
