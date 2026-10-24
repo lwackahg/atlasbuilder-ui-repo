@@ -1065,12 +1065,33 @@ $engineTip = "Which Riverheim draws the map.`n`n" + (Format-TipText 'Installed: 
 foreach ($target in @($engineBox, $engineInfo)) { $toolTip.SetToolTip($target, $engineTip) }
 $toolTip.SetToolTip($browseEngine, "Point the launcher at a Riverheim.dll (for example from another profile),`nor at your Valheim folder if it was not found.")
 
+# Search row between the custom world settings row and the settings list, so it stays in view while the list scrolls.
+$settingsPanel.Top += 34
+$settingsPanel.Height -= 34
+$searchY = $settingsPanel.Top - 32
+$form.Controls.Add((New-Label 'Find setting' 18 $searchY))
+$settingsSearch = [System.Windows.Forms.TextBox]::new()
+$settingsSearch.Location = [System.Drawing.Point]::new(125, $searchY)
+$settingsSearch.Size = [System.Drawing.Size]::new(250, 23)
+$form.Controls.Add($settingsSearch)
+$settingsSearchInfo = New-Label '' 383 $searchY 175
+$settingsSearchInfo.ForeColor = [System.Drawing.Color]::DimGray
+$settingsSearchInfo.AutoEllipsis = $true
+$form.Controls.Add($settingsSearchInfo)
+$clearSearchButton = [System.Windows.Forms.Button]::new()
+$clearSearchButton.Text = 'Clear'
+$clearSearchButton.Location = [System.Drawing.Point]::new(564, $searchY - 1)
+$clearSearchButton.Size = [System.Drawing.Size]::new(78, 25)
+$form.Controls.Add($clearSearchButton)
+$toolTip.SetToolTip($settingsSearch, "Type part of a setting's name, its name in the config file (for example LandCohesion),`nor a word from its description, such as island, river or snow. Esc clears it.")
+
 $fieldFont = [System.Drawing.Font]::new('Segoe UI', 9)
 $fieldFontChanged = [System.Drawing.Font]::new('Segoe UI Semibold', 9)
 $groupFont = [System.Drawing.Font]::new('Segoe UI Semibold', 9.5)
 $rowY = 8
 $column = 0
 $currentGroup = ''
+$groupHeaders = @{}
 foreach ($field in $worldFields) {
     if ($field.Group -ne $currentGroup) {
         if ($column -eq 1) { $rowY += 28; $column = 0 }
@@ -1078,6 +1099,7 @@ foreach ($field in $worldFields) {
         $header = New-Label $field.Group 8 $rowY 580
         $header.Font = $groupFont
         $settingsPanel.Controls.Add($header)
+        $groupHeaders[$field.Group] = $header
         $rowY += 26
         $currentGroup = $field.Group
     }
@@ -1109,6 +1131,7 @@ foreach ($field in $worldFields) {
     foreach ($target in @($fieldLabel, $numberBox, $helpIcon) + @($numberBox.Controls)) { $toolTip.SetToolTip($target, $tip) }
     $field | Add-Member -NotePropertyName Input -NotePropertyValue $numberBox
     $field | Add-Member -NotePropertyName LabelControl -NotePropertyValue $fieldLabel
+    $field | Add-Member -NotePropertyName HelpControl -NotePropertyValue $helpIcon
     if ($column -eq 0) { $column = 1 } else { $column = 0; $rowY += 28 }
 }
 if ($column -eq 1) { $rowY += 28 }
@@ -1186,6 +1209,72 @@ $fixRadiusButton.Location = [System.Drawing.Point]::new(416, $rowY - 1)
 $fixRadiusButton.Size = [System.Drawing.Size]::new(176, 25)
 $fixRadiusButton.Visible = $false
 $settingsPanel.Controls.Add($fixRadiusButton)
+
+# The world size section moves as a block under whatever settings the search shows.
+$ewsItems = @(foreach ($control in @($settingsPanel.Controls)) {
+    if ($control.Top -ge $ewsHeader.Top) { [pscustomobject]@{ Control = $control; Offset = $control.Top - $ewsHeader.Top } }
+})
+$ewsSearchText = 'world size in-game radius expand world size ews stretch bigger smaller copy'
+
+function Update-SettingsFilter {
+    # Shows only the settings whose name, config key, description or section contains every typed word,
+    # packed into the same two-column layout as the full list.
+    $words = @($settingsSearch.Text.Trim().ToLowerInvariant() -split '\s+' | Where-Object { $_ })
+    $settingsPanel.SuspendLayout()
+    try {
+        $settingsPanel.AutoScrollPosition = [System.Drawing.Point]::new(0, 0)
+        foreach ($header in $groupHeaders.Values) { $header.Visible = $false }
+        $y = 8
+        $col = 0
+        $group = ''
+        $shown = 0
+        foreach ($field in $worldFields) {
+            $text = "$($field.Label) $($field.Key) $($field.Tip) $($field.Group)".ToLowerInvariant()
+            $match = $true
+            foreach ($word in $words) { if (-not $text.Contains($word)) { $match = $false; break } }
+            foreach ($control in @($field.LabelControl, $field.Input, $field.HelpControl)) { $control.Visible = $match }
+            if (-not $match) { continue }
+            $shown++
+            if ($field.Group -ne $group) {
+                if ($col -eq 1) { $y += 28; $col = 0 }
+                if ($group) { $y += 6 }
+                $groupHeaders[$field.Group].Top = $y
+                $groupHeaders[$field.Group].Visible = $true
+                $y += 26
+                $group = $field.Group
+            }
+            $x = if ($col -eq 0) { 12 } else { 306 }
+            $field.LabelControl.Location = [System.Drawing.Point]::new($x, $y)
+            $field.Input.Location = [System.Drawing.Point]::new($x + 152, $y)
+            $field.HelpControl.Location = [System.Drawing.Point]::new($x + 267, $y)
+            if ($col -eq 0) { $col = 1 } else { $col = 0; $y += 28 }
+        }
+        if ($col -eq 1) { $y += 28 }
+        if ($shown -gt 0) { $y += 6 } else { $y = 8 }
+
+        $showEws = $true
+        foreach ($word in $words) { if (-not $ewsSearchText.Contains($word)) { $showEws = $false; break } }
+        foreach ($item in $ewsItems) {
+            $item.Control.Top = $y + $item.Offset
+            if ($item.Control -ne $fixRadiusButton) { $item.Control.Visible = $showEws }
+        }
+        if ($showEws) { Update-WorldSettingsSummary } else { $fixRadiusButton.Visible = $false }
+    } finally {
+        $settingsPanel.ResumeLayout()
+    }
+    $settingsSearchInfo.Text = if ($words.Count -eq 0) {
+        ''
+    } elseif ($shown -eq 0 -and -not $showEws) {
+        'No setting matches'
+    } else {
+        "$shown of $($worldFields.Count) settings" + $(if ($showEws) { ' + world size' } else { '' })
+    }
+}
+$settingsSearch.Add_TextChanged({ Update-SettingsFilter })
+$settingsSearch.Add_KeyDown({
+    if ($_.KeyCode -eq [System.Windows.Forms.Keys]::Escape) { $settingsSearch.Text = ''; $_.SuppressKeyPress = $true }
+})
+$clearSearchButton.Add_Click({ $settingsSearch.Text = ''; [void]$settingsSearch.Focus() })
 
 $runButton = [System.Windows.Forms.Button]::new()
 $runButton.Text = 'Generate map'
