@@ -70,7 +70,7 @@ The settings part is the preset name, or `custom-` plus a short code that is ide
 
 **Custom world settings** lets you draw maps with your own world settings — world size and depths, rivers, lakes, biome bias, **biome amounts** (how much contested land each biome takes), **biome bands** (how far from spawn Meadows reaches and where Swamp, Plains and Mistlands appear), and since 3.0 of the mod also **landmass** shape, **mountains**, **river features**, **sub-biomes**, **terrain feel** and the **polar belts** — exactly the settings, with the same names and Riverheim 1.2.1 defaults, as the [Riverheim Config](https://github.com/lwackahg/Riverheim_Config) mod (the field list is read from the mod's `settings.json`, see [SETTINGS.md](https://github.com/lwackahg/Riverheim_Config/blob/main/SETTINGS.md) for the full reference). Every field starts at the Riverheim default and turns blue when changed; a field left at its default leaves Riverheim's own value alone. Hover the blue **?** next to a field for what it does. **Import config** fills the fields from a Riverheim Config mod file so maps match your server (and also reads `expand_world_size.cfg` from the same folder); **Reset** puts them back. **Export config** writes the fields out as a Riverheim Config mod file for your server or profile, backing up the old file first.
 
-A few settings for Riverheim 1.1.1's lowland Black Forest variant (`ForestLowlandsWeight` and its shaping) cannot be previewed, because AtlasBuilder 1.0.0 bundles an older Riverheim; their tooltip says so, and the hook reports them as skipped.
+A few settings for Riverheim 1.1.1's lowland Black Forest variant (`ForestLowlandsWeight` and its shaping) have no effect on previews, because AtlasBuilder 1.0.0 bundles an older Riverheim that does not have them; the mod still applies them in game.
 
 **Stamp seed and settings under each map** (on by default) adds a caption strip below each image with the seed, map mode, preset, tag and any changed world settings, so a shared map explains itself. The map itself isn't covered.
 
@@ -88,7 +88,7 @@ AtlasBuilder has no option for custom world values, so the launcher adds them th
 
 Nothing is downloaded, nothing runs after AtlasBuilder closes, and no game, mod or AtlasBuilder files are modified. Leave **Custom world settings** unticked and the launcher runs AtlasBuilder exactly as before.
 
-**Maps are a preview, not a guarantee.** AtlasBuilder 1.0.0 bundles an older Riverheim than 1.2, so its maps can differ from worlds generated in game by Riverheim 1.2 — with or without custom settings.
+**Maps are a preview, not a guarantee.** AtlasBuilder 1.0.0 bundles an older Riverheim than 1.2, so its maps can differ from worlds generated in game by Riverheim 1.2 — with or without custom settings. (The settings mapping itself is verified: the mod's test suite runs this same hook inside AtlasBuilder with Riverheim 1.2.1, so what differs is only the Riverheim version doing the drawing.)
 
 ### Bigger worlds: World radius vs Expand World Size
 
