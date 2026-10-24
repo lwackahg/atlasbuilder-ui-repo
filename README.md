@@ -118,6 +118,8 @@ Stretch biomes = 1.2381
 
 The launcher never edits that file. Stretching scales the whole normal world, so the map picture looks the same and the caption shows the in-game size. Per Riverheim's README, Stretch world and Stretch biomes must be equal, and EWS World radius + World edge size must equal 10500 × stretch. If World radius is also changed, the launcher offers to set it back to 10500 or move that size into EWS stretching; **Import config** warns about it too.
 
+Two things to know about stretched worlds in game. Install [Riverheim Config](https://github.com/lwackahg/Riverheim_Config) 3.0 or newer: without it, trees, grass and many locations are missing beyond about 10 km, because Expand World Size does not stretch Riverheim's forest map. And Valheim's shaders draw snow on everything more than about 8,000 m north of the centre whatever the stretch, so the normal land between there and the Deep North looks snow-covered; that is only the look, and the map image is not affected.
+
 ## About the `-ExecutionPolicy Bypass`
 
 Fair question if you looked at the `.cmd` and got twitchy about it:
