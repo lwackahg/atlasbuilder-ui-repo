@@ -1,6 +1,6 @@
 # Riverheim AtlasBuilder UI
 
-A point-and-click launcher for [Gurebu's Riverheim AtlasBuilder](https://thunderstore.io/c/valheim/p/Gurebu/Riverheim/),
+A point-and-click launcher for [Gurebu's Riverheim AtlasBuilder](https://thunderstore.io/c/valheim/p/Gurebu/Riverheim_AtlasBuilder/),
 so you can generate Riverheim map images without touching a command line.
 
 Windows only. Three small text files, ~90 KB total.
@@ -15,7 +15,7 @@ Windows only. Three small text files, ~90 KB total.
 
 ## Install
 
-1. Install [Riverheim AtlasBuilder](https://thunderstore.io/c/valheim/p/Gurebu/Riverheim/) from Thunderstore if you haven't.
+1. Install [Riverheim AtlasBuilder](https://thunderstore.io/c/valheim/p/Gurebu/Riverheim_AtlasBuilder/) from Thunderstore if you haven't.
 2. Download the three files from the [latest release](../../releases/latest) (or use **Code → Download ZIP**).
 3. If you downloaded a zip: right-click it → **Properties** → tick **Unblock** → OK, *then* extract. Windows flags scripts that came from the internet, and this is how you clear it.
 4. Drop all three files into the folder that already contains `Riverheim.AtlasBuilder.exe`.
