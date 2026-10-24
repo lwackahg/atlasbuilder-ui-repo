@@ -3,22 +3,22 @@
 A point-and-click launcher for [Gurebu's Riverheim AtlasBuilder](https://thunderstore.io/c/valheim/p/Gurebu/Riverheim_AtlasBuilder/),
 so you can generate Riverheim map images without touching a command line.
 
-Windows only. Three small text files, ~90 KB total.
+Windows only. Five small text files, ~150 KB total.
 
 ## What this is and isn't
 
 - It **is** a UI wrapper. It builds the command line for you, runs the tool, and keeps track of what settings made which map.
 - It **does not** include `Riverheim.AtlasBuilder.exe`. That's Gurebu's tool — you install it from Thunderstore. This repo only ships the launcher.
 - It is **not** affiliated with or endorsed by Gurebu. It's a community convenience wrapper.
-- There is no installer, no binary download, and nothing that runs in the background. It's three plain-text files you can read in full before running:
-  [`AtlasBuilder-Launcher.ps1`](AtlasBuilder-Launcher.ps1), [`Run-AtlasBuilder-UI.cmd`](Run-AtlasBuilder-UI.cmd), and [`RiverheimConfigHook.cs`](RiverheimConfigHook.cs) (only used by the optional [custom world settings](#about-custom-world-settings)).
+- There is no installer, no binary download, and nothing that runs in the background. It's five plain-text files you can read in full before running:
+  [`AtlasBuilder-Launcher.ps1`](AtlasBuilder-Launcher.ps1), [`Run-AtlasBuilder-UI.cmd`](Run-AtlasBuilder-UI.cmd), and, only used by the optional [custom world settings](#about-custom-world-settings), [`RiverheimConfigHook.cs`](RiverheimConfigHook.cs), [`RiverheimSettings.cs`](RiverheimSettings.cs) and [`settings.json`](settings.json). The last two are unmodified copies from the [Riverheim Config](https://github.com/lwackahg/Riverheim_Config) mod: its settings table and the field list exported from it.
 
 ## Install
 
 1. Install [Riverheim AtlasBuilder](https://thunderstore.io/c/valheim/p/Gurebu/Riverheim_AtlasBuilder/) from Thunderstore if you haven't.
-2. Download the three files from the [latest release](../../releases/latest) (or use **Code → Download ZIP**).
+2. Download the five files from the [latest release](../../releases/latest) (or use **Code → Download ZIP**).
 3. If you downloaded a zip: right-click it → **Properties** → tick **Unblock** → OK, *then* extract. Windows flags scripts that came from the internet, and this is how you clear it.
-4. Drop all three files into the folder that already contains `Riverheim.AtlasBuilder.exe`.
+4. Drop all five files into the folder that already contains `Riverheim.AtlasBuilder.exe`.
 
    With Thunderstore Mod Manager that's usually:
 
@@ -68,7 +68,9 @@ The settings part is the preset name, or `custom-` plus a short code that is ide
 
 ### Custom world settings, captions and history
 
-**Custom world settings** lets you draw maps with your own terrain, river, lake and biome settings — including **biome amounts** (how much contested land each biome takes) and **biome bands** (how far from spawn Meadows reaches and where Swamp, Plains and Mistlands appear) — the same settings, with the same Riverheim 1.1 defaults, as the [Riverheim Config](https://github.com/lwackahg/Riverheim_Config) mod. Every field starts at the Riverheim default and turns blue when changed; hover the blue **?** next to a field for what it does. **Import config** fills the fields from a Riverheim Config mod file so maps match your server (and also reads `expand_world_size.cfg` from the same folder); **Reset** puts them back. **Export config** writes the fields out as a Riverheim Config mod file for your server or profile, backing up the old file first.
+**Custom world settings** lets you draw maps with your own world settings — world size and depths, rivers, lakes, biome bias, **biome amounts** (how much contested land each biome takes), **biome bands** (how far from spawn Meadows reaches and where Swamp, Plains and Mistlands appear), and since 3.0 of the mod also **landmass** shape, **mountains**, **river features**, **sub-biomes**, **terrain feel** and the **polar belts** — exactly the settings, with the same names and Riverheim 1.2.1 defaults, as the [Riverheim Config](https://github.com/lwackahg/Riverheim_Config) mod (the field list is read from the mod's `settings.json`, see [SETTINGS.md](https://github.com/lwackahg/Riverheim_Config/blob/main/SETTINGS.md) for the full reference). Every field starts at the Riverheim default and turns blue when changed; a field left at its default leaves Riverheim's own value alone. Hover the blue **?** next to a field for what it does. **Import config** fills the fields from a Riverheim Config mod file so maps match your server (and also reads `expand_world_size.cfg` from the same folder); **Reset** puts them back. **Export config** writes the fields out as a Riverheim Config mod file for your server or profile, backing up the old file first.
+
+A few settings for Riverheim 1.1.1's lowland Black Forest variant (`ForestLowlandsWeight` and its shaping) cannot be previewed, because AtlasBuilder 1.0.0 bundles an older Riverheim; their tooltip says so, and the hook reports them as skipped.
 
 **Stamp seed and settings under each map** (on by default) adds a caption strip below each image with the seed, map mode, preset, tag and any changed world settings, so a shared map explains itself. The map itself isn't covered.
 
@@ -78,13 +80,15 @@ The settings part is the preset name, or `custom-` plus a short code that is ide
 
 AtlasBuilder has no option for custom world values, so the launcher adds them the least invasive way .NET allows:
 
-1. The first time you use them, the launcher builds [`RiverheimConfigHook.cs`](RiverheimConfigHook.cs) into a small DLL using the C# compiler that is already part of Windows (.NET Framework 4), and stores it in `%LocalAppData%\RiverheimAtlasBuilderUI`. To compile against the right Riverheim version, it first starts AtlasBuilder once with no arguments so it unpacks itself into that same folder.
+1. The first time you use them, the launcher builds [`RiverheimConfigHook.cs`](RiverheimConfigHook.cs) together with [`RiverheimSettings.cs`](RiverheimSettings.cs) into a small DLL using the C# compiler that is already part of Windows (.NET Framework 4), and stores it in `%LocalAppData%\RiverheimAtlasBuilderUI`. To compile against the right Riverheim version, it first starts AtlasBuilder once with no arguments so it unpacks itself into that same folder.
 2. When you generate a map, the launcher writes your settings to a file in that folder and starts AtlasBuilder with a [.NET startup hook](https://github.com/dotnet/runtime/blob/main/docs/design/features/host-startup-hook.md) pointing at the DLL. Both are set only for AtlasBuilder.
 3. The hook registers a Riverheim world preset — the same extension point Riverheim uses for its own Experimental preset — built from the normal Default world plus your settings. The launcher then asks AtlasBuilder for that preset.
 
+`RiverheimSettings.cs` is the Riverheim Config mod's own settings table, compiled unchanged, so the launcher applies a setting exactly the way the mod does in game. The mod's test suite renders through this same hook to prove that stock values reproduce AtlasBuilder's Default preset byte for byte and that every setting changes the map.
+
 Nothing is downloaded, nothing runs after AtlasBuilder closes, and no game, mod or AtlasBuilder files are modified. Leave **Custom world settings** unticked and the launcher runs AtlasBuilder exactly as before.
 
-**Maps are a preview, not a guarantee.** AtlasBuilder 1.0.0 bundles an older Riverheim than 1.1, so its maps can differ from worlds generated in game by Riverheim 1.1 — with or without custom settings.
+**Maps are a preview, not a guarantee.** AtlasBuilder 1.0.0 bundles an older Riverheim than 1.2, so its maps can differ from worlds generated in game by Riverheim 1.2 — with or without custom settings.
 
 ### Bigger worlds: World radius vs Expand World Size
 
@@ -121,7 +125,7 @@ You should be skeptical of scripts from the internet. That's exactly why this is
 | "Windows protected your PC" (SmartScreen) | **More info** → **Run anyway**. |
 | "AtlasBuilder not found" | The launcher isn't next to the exe. Use **Browse** to point at `Riverheim.AtlasBuilder.exe`. |
 | Nothing generates | Check the log pane at the bottom of the window — the exe's own output goes there. |
-| Custom world settings are greyed out and say "Unavailable" | `RiverheimConfigHook.cs` isn't next to the launcher. Put all three files in the same folder. |
+| Custom world settings are greyed out and say "Missing: ..." | `RiverheimConfigHook.cs`, `RiverheimSettings.cs` or `settings.json` isn't next to the launcher. Put all five files in the same folder. |
 | Import config can't find the file | The Riverheim Config mod creates `BepInEx\config\com.valheim.riverheim.config.cfg` the first time the game starts with it installed. |
 | "Could not prepare custom world settings" | The message includes the compiler output. Delete `%LocalAppData%\RiverheimAtlasBuilderUI` and try again; if it still fails, open an issue with that message. |
 | AtlasBuilder window shows `[Custom world settings] Could not apply settings` | The map was drawn with stock settings. The same line says why. |

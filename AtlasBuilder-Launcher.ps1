@@ -12,6 +12,10 @@ $scriptRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $My
 $defaultExe = Join-Path $scriptRoot 'Riverheim.AtlasBuilder.exe'
 $defaultOutput = Join-Path ([Environment]::GetFolderPath('MyPictures')) 'Riverheim Maps'
 $hookSource = Join-Path $scriptRoot 'RiverheimConfigHook.cs'
+# RiverheimSettings.cs and settings.json come from the Riverheim Config mod repository (github.com/lwackahg/Riverheim_Config):
+# the .cs is the mod's own settings table and is compiled into the hook, the .json is exported from it and builds the fields below.
+$settingsSource = Join-Path $scriptRoot 'RiverheimSettings.cs'
+$settingsSchemaPath = Join-Path $scriptRoot 'settings.json'
 $hookCacheRoot = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'RiverheimAtlasBuilderUI'
 $presetNames = [string[]]@('Default', 'Experimental', 'Mini', 'MiniExp', 'Token', 'HugeWorld')
 # From AtlasBuilder 1.0.0's preset definitions (Riverheim.Configuration.ConfigManagerExtension).
@@ -25,46 +29,32 @@ $presetDescriptions = [ordered]@{
 }
 $defaultWorldRadius = 10500
 
-# World settings shown in the launcher. Sections and keys match the Riverheim Config mod's config file;
-# defaults are Riverheim 1.1's (AtlasBuilder 1.0.0 uses the same defaults for these settings).
-$worldFields = @(
-    [pscustomobject]@{ Group = 'World (to change the world size, use World size at the bottom)'; Section = '1. World'; Key = 'WorldRadius'; Label = 'World radius (m)'; Default = 10500; Decimals = 0; Step = 500; Min = 1000; Max = 100000; Tip = 'Leave this at 10500 and set the world size in World size at the bottom instead. How far Riverheim generates the world, in metres. Biome bands scale with it, but the Ashlands and Deep North poles, the landmass swirl and the rainfall pattern stay fixed in metres, so a bigger radius distorts the layout instead of just scaling it up. For a bigger world with the normal layout, keep 10500 and use Expand World Size stretching.' }
-    [pscustomobject]@{ Group = 'World (to change the world size, use World size at the bottom)'; Section = '1. World'; Key = 'TileSpacing'; Label = 'Tile spacing (m)'; Default = 60; Decimals = 0; Step = 5; Min = 10; Max = 1000; Tip = 'Distance between Riverheim generation points, in metres. Coastlines, rivers and lakes are built on this grid. Lower values give finer detail but take much longer, and river and lake counts grow with the number of points.' }
-    [pscustomobject]@{ Group = 'World (to change the world size, use World size at the bottom)'; Section = '1. World'; Key = 'SeaFloorDepth'; Label = 'Sea floor depth'; Default = -40; Decimals = 1; Step = 1; Min = -1000; Max = 1000; Tip = 'Height the sea floor settles to at the world edge and in the polar trenches, also used as the floor when shaping terrain. More negative values mean deeper edges and trenches.' }
-    [pscustomobject]@{ Group = 'World (to change the world size, use World size at the bottom)'; Section = '1. World'; Key = 'OceanBiomeDepth'; Label = 'Ocean biome depth'; Default = -20; Decimals = 1; Step = 1; Min = -1000; Max = 1000; Tip = 'Water must be deeper than this, and far enough from the coast, to count as the Ocean biome. More negative values mean fewer waters count as Ocean.' }
-    [pscustomobject]@{ Group = 'World (to change the world size, use World size at the bottom)'; Section = '1. World'; Key = 'MountainHeight'; Label = 'Mountain height'; Default = 50; Decimals = 1; Step = 1; Min = -1000; Max = 1000; Tip = 'Terrain at or above this height becomes the Mountain biome, and terrain shaping around mountains uses it too. Lower values turn more high ground into mountains.' }
-    [pscustomobject]@{ Group = 'World (to change the world size, use World size at the bottom)'; Section = '1. World'; Key = 'StartingAreaRadius'; Label = 'Starting area (m)'; Default = 870; Decimals = 0; Step = 50; Min = 0; Max = 10000; Tip = 'Size of the gentle area around spawn, in metres, where Riverheim shapes hills as if the land were flat. Larger values make a bigger gentle start.' }
-    [pscustomobject]@{ Group = 'Rivers'; Section = '2. Rivers'; Key = 'OriginDensity'; Label = 'River origin density'; Default = 0.25; Decimals = 2; Step = 0.05; Min = 0; Max = 1; Tip = 'Share of suitable coastline tiles that become river mouths; 0.25 is about one in four. Higher values make more rivers, and 0 turns rivers off.' }
-    [pscustomobject]@{ Group = 'Rivers'; Section = '2. Rivers'; Key = 'MinLandNeighbors'; Label = 'Min land neighbours'; Default = 2; Decimals = 0; Step = 1; Min = 0; Max = 8; Tip = 'A coastline tile needs at least this many land tiles next to it to start a river. Higher values keep river mouths off thin peninsulas and small islands.' }
-    [pscustomobject]@{ Group = 'Rivers'; Section = '2. Rivers'; Key = 'WidthScale'; Label = 'Width scale'; Default = 140; Decimals = 1; Step = 10; Min = 0; Max = 10000; Tip = 'River width = Width scale x flow ^ Width power + Width offset, never below zero. Width scale makes every river proportionally wider or narrower.' }
-    [pscustomobject]@{ Group = 'Rivers'; Section = '2. Rivers'; Key = 'WidthPower'; Label = 'Width power'; Default = 0.4; Decimals = 2; Step = 0.05; Min = 0; Max = 10; Tip = 'How strongly river width grows with water flow in the width formula. Higher values make big rivers much wider than small streams; lower values make widths more even.' }
-    [pscustomobject]@{ Group = 'Rivers'; Section = '2. Rivers'; Key = 'WidthOffset'; Label = 'Width offset'; Default = -6; Decimals = 1; Step = 1; Min = -1000; Max = 1000; Tip = 'Added to every river width in the width formula. Negative values make small streams thinner, and Min river width then removes the thinnest; positive values widen all rivers by the same amount.' }
-    [pscustomobject]@{ Group = 'Rivers'; Section = '2. Rivers'; Key = 'MinStrahler'; Label = 'Min Strahler order'; Default = 2; Decimals = 0; Step = 1; Min = 1; Max = 20; Tip = 'River branches below this Strahler order are removed. Headwater streams are order 1, and two joining streams of the same order make the next order up. Higher values keep only the bigger branches.' }
-    [pscustomobject]@{ Group = 'Rivers'; Section = '2. Rivers'; Key = 'MinWidth'; Label = 'Min river width (m)'; Default = 14.5; Decimals = 1; Step = 0.5; Min = 0; Max = 1000; Tip = 'River segments narrower than this are removed. Higher values drop thin streams.' }
-    [pscustomobject]@{ Group = 'Rivers'; Section = '2. Rivers'; Key = 'MaxWidthDifference'; Label = 'Max tributary ratio'; Default = 2.2; Decimals = 1; Step = 0.5; Min = 0; Max = 1000; Tip = 'Where rivers join, a side branch is removed if the widest incoming branch is more than this many times wider. Higher values keep more small tributaries, and 0 keeps them all. Called MaxWidthDifference in the mod config.' }
-    [pscustomobject]@{ Group = 'Rivers'; Section = '2. Rivers'; Key = 'MeanderPeriod'; Label = 'Meander period'; Default = 3.4; Decimals = 2; Step = 0.1; Min = 0; Max = 100; Tip = 'Length of river bends, measured in river widths. Higher values make longer, gentler bends.' }
-    [pscustomobject]@{ Group = 'Rivers'; Section = '2. Rivers'; Key = 'MeanderAmplitude'; Label = 'Meander amplitude'; Default = 1.35; Decimals = 2; Step = 0.05; Min = 0; Max = 100; Tip = 'Strength of river bends. Higher values make rivers wind more; lower values make them straighter.' }
-    [pscustomobject]@{ Group = 'Lakes'; Section = '3. Lakes'; Key = 'Budget'; Label = 'Lake budget'; Default = 0.0055; Decimals = 4; Step = 0.0005; Min = 0; Max = 1; Tip = 'Share of all generation points picked as lake starting points, which then grow into lakes. Higher values make more lake area.' }
-    [pscustomobject]@{ Group = 'Lakes'; Section = '3. Lakes'; Key = 'NoiseScale'; Label = 'Lake noise scale'; Default = 600; Decimals = 0; Step = 50; Min = 1; Max = 100000; Tip = 'Size of the random pattern that decides where lakes prefer to form. Larger values group lakes into bigger regions; smaller values scatter them.' }
-    [pscustomobject]@{ Group = 'Lakes'; Section = '3. Lakes'; Key = 'LowlandContribution'; Label = 'Lowland pull'; Default = 0.35; Decimals = 2; Step = 0.05; Min = -100; Max = 100; Tip = 'How strongly lakes prefer flat lowland. Higher values put more lakes on flat ground.' }
-    [pscustomobject]@{ Group = 'Lakes'; Section = '3. Lakes'; Key = 'CuriosityContribution'; Label = 'Terrain interest pull'; Default = 0.8; Decimals = 2; Step = 0.05; Min = -100; Max = 100; Tip = 'How strongly lakes prefer spots that Riverheim marks as notable along river systems. Higher values put more lakes on rivers.' }
-    [pscustomobject]@{ Group = 'Biome placement bias'; Section = '4. Biomes'; Key = 'MeadowsBias'; Label = 'Meadows bias'; Default = 0; Decimals = 1; Step = 1; Min = -1000; Max = 1000; Tip = 'Flat bonus added to the Meadows score on every tile where biomes compete, on top of its height, distance and river rules. Higher values let it win more land. Ocean and Mountain are placed by separate rules and are not affected.' }
-    [pscustomobject]@{ Group = 'Biome placement bias'; Section = '4. Biomes'; Key = 'ForestBias'; Label = 'Black Forest bias'; Default = -10; Decimals = 1; Step = 1; Min = -1000; Max = 1000; Tip = 'Flat bonus added to the Black Forest score on every tile where biomes compete, on top of its height, distance and river rules. Higher values let it win more land. Ocean and Mountain are placed by separate rules and are not affected.' }
-    [pscustomobject]@{ Group = 'Biome placement bias'; Section = '4. Biomes'; Key = 'SwampBias'; Label = 'Swamp bias'; Default = 8; Decimals = 1; Step = 1; Min = -1000; Max = 1000; Tip = 'Flat bonus added to the Swamp score on every tile where biomes compete, on top of its height, distance and river rules. Higher values let it win more land. Ocean and Mountain are placed by separate rules and are not affected.' }
-    [pscustomobject]@{ Group = 'Biome placement bias'; Section = '4. Biomes'; Key = 'PlainsBias'; Label = 'Plains bias'; Default = 5; Decimals = 1; Step = 1; Min = -1000; Max = 1000; Tip = 'Flat bonus added to the Plains score on every tile where biomes compete, on top of its height, distance and river rules. Higher values let it win more land. Ocean and Mountain are placed by separate rules and are not affected.' }
-    [pscustomobject]@{ Group = 'Biome placement bias'; Section = '4. Biomes'; Key = 'MistlandsBias'; Label = 'Mistlands bias'; Default = 0; Decimals = 1; Step = 1; Min = -1000; Max = 1000; Tip = 'Flat bonus added to the Mistlands score on every tile where biomes compete, on top of its height, distance and river rules. Higher values let it win more land. Ocean and Mountain are placed by separate rules and are not affected.' }
-    [pscustomobject]@{ Group = 'Biome amounts (share of contested land)'; Section = '5. Biome Amounts'; Key = 'MeadowsWeight'; Label = 'Meadows amount'; Default = 69.5; Decimals = 1; Step = 10; Min = 0; Max = 100000; Tip = 'How much of the contested land Meadows takes. Where biomes compete, they claim land in proportion to these amounts, so raising one gives that biome more land within its bands.' }
-    [pscustomobject]@{ Group = 'Biome amounts (share of contested land)'; Section = '5. Biome Amounts'; Key = 'ForestWeight'; Label = 'Black Forest amount'; Default = 261; Decimals = 1; Step = 10; Min = 0; Max = 100000; Tip = 'How much of the contested land Black Forest takes. Where biomes compete, they claim land in proportion to these amounts, so raising one gives that biome more land within its bands.' }
-    [pscustomobject]@{ Group = 'Biome amounts (share of contested land)'; Section = '5. Biome Amounts'; Key = 'SwampWeight'; Label = 'Swamp amount'; Default = 76; Decimals = 1; Step = 10; Min = 0; Max = 100000; Tip = 'How much of the contested land Swamp takes. Where biomes compete, they claim land in proportion to these amounts, so raising one gives that biome more land within its bands.' }
-    [pscustomobject]@{ Group = 'Biome amounts (share of contested land)'; Section = '5. Biome Amounts'; Key = 'PlainsWeight'; Label = 'Plains amount'; Default = 283; Decimals = 1; Step = 10; Min = 0; Max = 100000; Tip = 'How much of the contested land Plains takes. Where biomes compete, they claim land in proportion to these amounts, so raising one gives that biome more land within its bands.' }
-    [pscustomobject]@{ Group = 'Biome amounts (share of contested land)'; Section = '5. Biome Amounts'; Key = 'MistlandsWeight'; Label = 'Mistlands amount'; Default = 305; Decimals = 1; Step = 10; Min = 0; Max = 100000; Tip = 'How much of the contested land Mistlands takes. Where biomes compete, they claim land in proportion to these amounts, so raising one gives that biome more land within its bands.' }
-    [pscustomobject]@{ Group = 'Biome bands (% of the way from spawn to the world edge)'; Section = '6. Biome Bands'; Key = 'MeadowsFadeEnd'; Label = 'Meadows fades by (%)'; Default = 50; Decimals = 1; Step = 1; Min = 1; Max = 150; Tip = 'Meadows gets less likely the further you travel from spawn, reaching its full penalty at this percentage. Lower values keep Meadows closer to spawn. Distances are travel distance from spawn (sailing and crossing rivers count differently from walking), scaled to match straight-line distance on average.' }
-    [pscustomobject]@{ Group = 'Biome bands (% of the way from spawn to the world edge)'; Section = '6. Biome Bands'; Key = 'SwampStart'; Label = 'Swamp starts (%)'; Default = 20; Decimals = 1; Step = 1; Min = 3; Max = 150; Tip = 'Swamp can appear from this percentage of the way from spawn to the world edge, fading in over the 2% before it. Must be lower than Swamp ends.' }
-    [pscustomobject]@{ Group = 'Biome bands (% of the way from spawn to the world edge)'; Section = '6. Biome Bands'; Key = 'SwampEnd'; Label = 'Swamp ends (%)'; Default = 58; Decimals = 1; Step = 1; Min = 3; Max = 150; Tip = 'Swamp stops appearing past this percentage of the way from spawn to the world edge, fading out over the next 2%.' }
-    [pscustomobject]@{ Group = 'Biome bands (% of the way from spawn to the world edge)'; Section = '6. Biome Bands'; Key = 'PlainsStart'; Label = 'Plains starts (%)'; Default = 29; Decimals = 1; Step = 1; Min = 3; Max = 150; Tip = 'Plains can appear from this percentage of the way from spawn to the world edge, fading in over the 2% before it. Must be lower than Plains ends.' }
-    [pscustomobject]@{ Group = 'Biome bands (% of the way from spawn to the world edge)'; Section = '6. Biome Bands'; Key = 'PlainsEnd'; Label = 'Plains ends (%)'; Default = 66; Decimals = 1; Step = 1; Min = 3; Max = 150; Tip = 'Plains stops appearing past this percentage of the way from spawn to the world edge, fading out over the next 2%.' }
-    [pscustomobject]@{ Group = 'Biome bands (% of the way from spawn to the world edge)'; Section = '6. Biome Bands'; Key = 'MistlandsStart'; Label = 'Mistlands starts (%)'; Default = 60; Decimals = 1; Step = 1; Min = 6; Max = 150; Tip = 'Mistlands can appear from this percentage of the way from spawn to the world edge onwards, fading in over the 5% before it.' }
-)
+# World settings shown in the launcher, read from settings.json (exported from the Riverheim Config mod's
+# RiverheimSettings.cs, so new mod settings appear here without launcher changes). Sections and keys match the
+# mod's config file; defaults are Riverheim 1.2.1's. Each entry: Group (section title), Section, Key, Label,
+# Default, Decimals, Step, Min, Max, Tip, Optional (not in AtlasBuilder 1.0.0's older Riverheim).
+$worldFields = @()
+$settingsSchemaError = ''
+try {
+    if (-not (Test-Path -LiteralPath $settingsSchemaPath -PathType Leaf)) { throw 'settings.json was not found next to the launcher.' }
+    $settingsSchema = Get-Content -LiteralPath $settingsSchemaPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $sectionTitles = @{}
+    foreach ($schemaSection in $settingsSchema.sections) { $sectionTitles[[string]$schemaSection.name] = [string]$schemaSection.title }
+    $worldFields = @(foreach ($schemaSetting in $settingsSchema.settings) {
+        $tip = [string]$schemaSetting.description
+        if ($schemaSetting.previewNote) { $tip = "$tip $($schemaSetting.previewNote)" }
+        $group = if ($sectionTitles.ContainsKey([string]$schemaSetting.section)) { $sectionTitles[[string]$schemaSetting.section] } else { [string]$schemaSetting.section }
+        [pscustomobject]@{
+            Group = $group; Section = [string]$schemaSetting.section; Key = [string]$schemaSetting.key; Label = [string]$schemaSetting.label
+            Default = [double]$schemaSetting.default; Decimals = [int]$schemaSetting.decimals; Step = [double]$schemaSetting.step
+            Min = [double]$schemaSetting.min; Max = [double]$schemaSetting.max; Tip = $tip; Optional = [bool]$schemaSetting.optional
+        }
+    })
+    if ($worldFields.Count -eq 0) { throw 'settings.json lists no settings.' }
+} catch {
+    $settingsSchemaError = $_.Exception.Message
+    $worldFields = @()
+}
 
 function New-Label {
     param([string]$Text, [int]$X, [int]$Y, [int]$Width = 105)
@@ -243,10 +233,14 @@ function Find-RiverheimConfig {
 
 function Get-RiverheimConfigHook {
     param([string]$AtlasExe)
-    # Builds RiverheimConfigHook.cs into a small DLL with the C# compiler that ships with Windows,
-    # against AtlasBuilder's own assemblies. Rebuilt only when AtlasBuilder or the .cs file changes.
+    # Builds RiverheimConfigHook.cs together with RiverheimSettings.cs (the mod's settings table) into a small DLL
+    # with the C# compiler that ships with Windows, against AtlasBuilder's own assemblies. Rebuilt only when
+    # AtlasBuilder or one of the .cs files changes.
     if (-not (Test-Path -LiteralPath $hookSource -PathType Leaf)) {
         throw 'RiverheimConfigHook.cs was not found next to the launcher.'
+    }
+    if (-not (Test-Path -LiteralPath $settingsSource -PathType Leaf)) {
+        throw 'RiverheimSettings.cs was not found next to the launcher.'
     }
     $compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
     if (-not (Test-Path -LiteralPath $compiler)) { $compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework\v4.0.30319\csc.exe' }
@@ -255,7 +249,8 @@ function Get-RiverheimConfigHook {
     $exeInfo = Get-Item -LiteralPath $AtlasExe
     $cacheDir = Join-Path $hookCacheRoot ('{0}-{1}' -f $exeInfo.Length, $exeInfo.LastWriteTimeUtc.Ticks)
     $hookDll = Join-Path $cacheDir 'RiverheimConfigHook.dll'
-    if ((Test-Path -LiteralPath $hookDll) -and (Get-Item -LiteralPath $hookDll).LastWriteTimeUtc -ge (Get-Item -LiteralPath $hookSource).LastWriteTimeUtc) {
+    $newestSource = @((Get-Item -LiteralPath $hookSource).LastWriteTimeUtc, (Get-Item -LiteralPath $settingsSource).LastWriteTimeUtc) | Sort-Object -Descending | Select-Object -First 1
+    if ((Test-Path -LiteralPath $hookDll) -and (Get-Item -LiteralPath $hookDll).LastWriteTimeUtc -ge $newestSource) {
         return $hookDll
     }
 
@@ -284,6 +279,7 @@ function Get-RiverheimConfigHook {
         $arguments += '-reference:' + (Quote-Argument (Join-Path $core.DirectoryName "$name.dll"))
     }
     $arguments += Quote-Argument $hookSource
+    $arguments += Quote-Argument $settingsSource
 
     $build = [System.Diagnostics.ProcessStartInfo]::new($compiler, ($arguments -join ' '))
     $build.UseShellExecute = $false
@@ -294,7 +290,7 @@ function Get-RiverheimConfigHook {
     $buildOutput = $buildProcess.StandardOutput.ReadToEnd() + $buildProcess.StandardError.ReadToEnd()
     $buildProcess.WaitForExit()
     if ($buildProcess.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $hookDll)) {
-        throw "Could not build RiverheimConfigHook.cs:`n$buildOutput"
+        throw "Could not build RiverheimConfigHook.cs and RiverheimSettings.cs:`n$buildOutput"
     }
     return $hookDll
 }
@@ -1186,16 +1182,16 @@ Stamp seed and settings under each map
 Adds a caption strip below each map image (the map itself is not covered) with the seed, map mode, preset and world settings, so the picture explains itself when shared. Untick it for clean map images.
 
 Custom world settings
-Tick this to draw maps with your own world settings: terrain, rivers, lakes, biome bias, biome amounts (how much contested land each biome takes) and biome bands (how far from spawn each biome appears). These are the same settings the Riverheim Config mod has, and every field starts at the Riverheim 1.1 default. Changed fields turn blue; hover the blue ? next to a field to see what it does.
+Tick this to draw maps with your own world settings: world size and depths, rivers, lakes, biome bias, biome amounts (how much contested land each biome takes), biome bands (how far from spawn each biome appears), landmass shape, mountains, river features, sub-biomes, terrain feel and the polar belts. These are exactly the settings the Riverheim Config mod has (the list comes from the mod's own settings file), and every field starts at the Riverheim 1.2.1 default. A field left at its default leaves Riverheim's own value alone. Changed fields turn blue; hover the blue ? next to a field to see what it does. A few settings for Riverheim 1.1.1's lowland Black Forest variant cannot be previewed, because AtlasBuilder 1.0.0 bundles an older Riverheim; their tooltip says so.
 Import config fills the fields from a Riverheim Config mod file (com.valheim.riverheim.config.cfg in your profile's BepInEx\config folder), so maps match your server. Reset puts every field back to its default. Export config saves the fields as a Riverheim Config mod file for your server or profile, backing up any existing file first; restart the game or server to use it.
 
-How custom world settings work: the first time you use them, the launcher builds RiverheimConfigHook.cs (a small, readable file next to the launcher) into a DLL with the C# compiler that ships with Windows, and keeps it in %LocalAppData%\RiverheimAtlasBuilderUI. When generating, it writes your settings to a file in that folder and tells .NET to load the DLL into AtlasBuilder (a .NET startup hook). The hook fills AtlasBuilder's Experimental preset slot with the Default world plus your settings, and the launcher runs that preset. Nothing is downloaded, and no game, mod or AtlasBuilder files are changed.
+How custom world settings work: the first time you use them, the launcher builds RiverheimConfigHook.cs together with RiverheimSettings.cs (two small, readable files next to the launcher; the second one is the Riverheim Config mod's own settings table) into a DLL with the C# compiler that ships with Windows, and keeps it in %LocalAppData%\RiverheimAtlasBuilderUI. When generating, it writes your settings to a file in that folder and tells .NET to load the DLL into AtlasBuilder (a .NET startup hook). The hook fills AtlasBuilder's Experimental preset slot with the Default world plus your settings, and the launcher runs that preset. Nothing is downloaded, and no game, mod or AtlasBuilder files are changed.
 
 World size: Expand World Size stretching
 This is where you set the world size, bigger or smaller. Keep World radius (in the World group) at 10500 and let Expand World Size stretch the whole world; a stretch below 1 makes it smaller. Set In-game radius or EWS stretch (they are linked: stretch = radius / 10500), then click Copy EWS settings and paste the four lines into the [1. General] section of expand_world_size.cfg. The launcher never edits that file. Stretching scales the whole normal world, so the map picture looks the same and the caption shows the in-game size. If World radius is also changed, a button offers to set it back to 10500, or to move that size into EWS stretching. Import config reads expand_world_size.cfg from the same folder too, and warns about combinations Riverheim does not support.
 Why not World radius for a bigger world? World radius changes how far Riverheim itself generates. Biome bands scale with it, but the Ashlands and Deep North poles, the landmass swirl and the rainfall pattern stay fixed in metres (the HugeWorld preset rescales those by hand), so the layout gets distorted. For a bigger world with the normal layout, keep World radius at 10500 and use EWS stretching.
 
-Maps are a preview: AtlasBuilder 1.0.0 bundles an older Riverheim than 1.1, so maps may not match your in-game world exactly, with or without custom world settings.
+Maps are a preview: AtlasBuilder 1.0.0 bundles an older Riverheim than 1.2, so maps may not match your in-game world exactly, with or without custom world settings. The settings themselves map onto the same Riverheim fields in both.
 
 Maps (newest first)
 The large preview shows the maps in the output folder, newest first. Use < and > to step through them, and Open to view one full size.
@@ -1734,11 +1730,17 @@ $form.Add_Shown({
     Update-WorldSettingsSummary
     Update-PresetInfo
     Update-QueueList
-    if (-not (Test-Path -LiteralPath $hookSource -PathType Leaf)) {
+    $missingFiles = @()
+    foreach ($required in @($hookSource, $settingsSource, $settingsSchemaPath)) {
+        if (-not (Test-Path -LiteralPath $required -PathType Leaf)) { $missingFiles += Split-Path -Leaf $required }
+    }
+    if ($missingFiles.Count -gt 0 -or $settingsSchemaError) {
         $worldCheck.Enabled = $false
         $importButton.Enabled = $false
+        $exportButton.Enabled = $false
         $resetButton.Enabled = $false
-        $worldSummary.Text = 'Hook file missing'
+        $worldSummary.Text = if ($missingFiles.Count -gt 0) { "Missing: $($missingFiles -join ', ')" } else { 'settings.json unreadable' }
+        $toolTip.SetToolTip($worldSummary, $(if ($settingsSchemaError) { $settingsSchemaError } else { 'Put all five launcher files in the same folder.' }))
     }
 })
 $form.Add_FormClosed({ if ($null -ne $mainPreview.Image) { $mainPreview.Image.Dispose() } })
@@ -1833,7 +1835,7 @@ function New-GenerationJobs {
             $captionRadius = if ($customWorld) { [double]($worldFields | Where-Object { $_.Key -eq 'WorldRadius' }).Input.Value } else { $defaultWorldRadius }
             $captionDetail += 'Expand World Size: {0}x stretch, in-game radius about {1:N0} m' -f (Format-SettingValue $ewsStretchBox.Value), ($captionRadius * [double]$ewsStretchBox.Value)
         }
-        $captionDetail += 'AtlasBuilder preview. AtlasBuilder 1.0.0 uses an older Riverheim than 1.1, so in-game worlds can differ.'
+        $captionDetail += 'AtlasBuilder preview. AtlasBuilder 1.0.0 uses an older Riverheim than 1.2, so in-game worlds can differ.'
     }
 
     $tag = ConvertTo-FileTag $tagBox.Text
