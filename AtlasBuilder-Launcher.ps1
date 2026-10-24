@@ -263,6 +263,15 @@ function Invoke-CSharpCompiler {
     }
 }
 
+function Test-WindowsExecutable {
+    param([string]$Path)
+    # Windows programs start with "MZ"; the Linux AtlasBuilder in the same package does not.
+    try {
+        $stream = [System.IO.File]::OpenRead($Path)
+        try { return ($stream.ReadByte() -eq 0x4D -and $stream.ReadByte() -eq 0x5A) } finally { $stream.Dispose() }
+    } catch { return $false }
+}
+
 function Get-AtlasBundle {
     param([string]$AtlasExe)
     # AtlasBuilder is a single-file app. Starting it once with no arguments (it only prints its help) unpacks its
@@ -2225,6 +2234,10 @@ function New-GenerationJobs {
 
     if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
         [System.Windows.Forms.MessageBox]::Show('Choose the Riverheim.AtlasBuilder.exe file.', 'AtlasBuilder not found', 'OK', 'Warning') | Out-Null
+        return
+    }
+    if (-not (Test-WindowsExecutable $exe)) {
+        [System.Windows.Forms.MessageBox]::Show("$exe`n`nis not the Windows version of AtlasBuilder (the package also contains a Linux one, Riverheim.AtlasBuilder without .exe). Choose Riverheim.AtlasBuilder.exe, or reinstall Riverheim_AtlasBuilder from Thunderstore.", 'Not the Windows AtlasBuilder', 'OK', 'Warning') | Out-Null
         return
     }
     if ($seeds.Count -eq 0) {
