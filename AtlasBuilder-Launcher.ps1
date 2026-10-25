@@ -9,7 +9,18 @@ $ErrorActionPreference = 'Stop'
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
 $scriptRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+# AtlasBuilder sits next to the launcher when copied in by hand. A mod manager installs the launcher in its own folder,
+# so also look in the other folders of the same BepInEx\plugins folder (Gurebu-Riverheim_AtlasBuilder).
 $defaultExe = Join-Path $scriptRoot 'Riverheim.AtlasBuilder.exe'
+if (-not (Test-Path -LiteralPath $defaultExe -PathType Leaf)) {
+    try {
+        $siblingExe = Get-ChildItem -LiteralPath (Split-Path -Parent $scriptRoot) -Directory -ErrorAction Stop |
+            Sort-Object { $_.Name -notlike '*AtlasBuilder*' } |
+            ForEach-Object { Join-Path $_.FullName 'Riverheim.AtlasBuilder.exe' } |
+            Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+        if ($siblingExe) { $defaultExe = $siblingExe }
+    } catch { }
+}
 $defaultOutput = Join-Path ([Environment]::GetFolderPath('MyPictures')) 'Riverheim Maps'
 $hookSource = Join-Path $scriptRoot 'RiverheimConfigHook.cs'
 # RiverheimSettings.cs and settings.json come from the Riverheim Config mod repository (github.com/lwackahg/Riverheim_Config):

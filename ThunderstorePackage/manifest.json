@@ -1,0 +1,9 @@
+{
+    "name": "Riverheim_AtlasBuilder_UI",
+    "version_number": "1.0.0",
+    "website_url": "https://github.com/lwackahg/atlasbuilder-ui-repo",
+    "description": "Point-and-click window for Gurebu's Riverheim AtlasBuilder: type a seed, get a map of your Riverheim world, drawn by your installed Riverheim. Preview Riverheim Config settings before making a world.",
+    "dependencies": [
+        "Gurebu-Riverheim_AtlasBuilder-1.0.0"
+    ]
+}
