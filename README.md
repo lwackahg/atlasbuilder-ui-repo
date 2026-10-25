@@ -17,7 +17,7 @@ In your mod manager (Thunderstore Mod Manager or r2modman), add **[Riverheim Atl
 1. On this page, click the green **Code** button → **Download ZIP**.
 2. Right-click the downloaded zip → **Properties** → tick **Unblock** → **OK**. (Windows blocks scripts downloaded from the internet until you do this.)
 3. Open your profile's AtlasBuilder folder. In the mod manager: *Settings* → *Browse profile folder*, then `BepInEx` → `plugins` → `Gurebu-Riverheim_AtlasBuilder`.
-4. Copy the files from inside the zip's folder into it, next to `Riverheim.AtlasBuilder.exe`.
+4. Copy everything from inside the zip's folder (the files and the `presets` folder) into it, next to `Riverheim.AtlasBuilder.exe`.
 
 ### 3. Open it
 
