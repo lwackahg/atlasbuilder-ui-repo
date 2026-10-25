@@ -8,22 +8,22 @@ A point-and-click window for [Gurebu's Riverheim AtlasBuilder](https://thunderst
 
 ## Quick start
 
-### 1. Install
+### 1. Get the mods
 
-**With a mod manager (Thunderstore Mod Manager or r2modman):** install **Riverheim_AtlasBuilder_UI** from Thunderstore. It brings Gurebu's Riverheim AtlasBuilder with it. Also have **Riverheim** in the same profile so maps match your game.
+In your mod manager (Thunderstore Mod Manager or r2modman), add **[Riverheim AtlasBuilder](https://thunderstore.io/c/valheim/p/Gurebu/Riverheim_AtlasBuilder/)** to the profile you play with. Have **[Riverheim](https://thunderstore.io/c/valheim/p/Gurebu/Riverheim/)** in the same profile too, so maps match your game.
 
-**By hand:** download the zip from the [latest release](../../releases/latest). Right-click it → **Properties** → tick **Unblock** → **OK**, *then* extract it into the folder that holds `Riverheim.AtlasBuilder.exe` (or any folder next to it inside `BepInEx\plugins`).
+### 2. Download this launcher
 
-### 2. Open it
+1. On this page, click the green **Code** button → **Download ZIP**.
+2. Right-click the downloaded zip → **Properties** → tick **Unblock** → **OK**. (Windows blocks scripts downloaded from the internet until you do this.)
+3. Open your profile's AtlasBuilder folder. In the mod manager: *Settings* → *Browse profile folder*, then `BepInEx` → `plugins` → `Gurebu-Riverheim_AtlasBuilder`.
+4. Copy the files from inside the zip's folder into it, next to `Riverheim.AtlasBuilder.exe`.
 
-Open your profile's plugins folder and double-click **`Run-AtlasBuilder-UI.cmd`**:
+### 3. Open it
 
-- **Thunderstore Mod Manager / r2modman:** *Settings* → *Browse profile folder* → `BepInEx` → `plugins` → `Wackah-Riverheim_AtlasBuilder_UI`.
-- Or paste this into the Explorer address bar, with your profile name: `%AppData%\Thunderstore Mod Manager\DataFolder\Valheim\profiles\<YOUR PROFILE>\BepInEx\plugins` (r2modman: `%AppData%\r2modmanPlus-local\Valheim\profiles\<YOUR PROFILE>\BepInEx\plugins`).
+Double-click **`Run-AtlasBuilder-UI.cmd`** in that folder. Tip: right-click it → *Send to* → *Desktop (create shortcut)* so you can find it next time.
 
-Tip: right-click the `.cmd` → *Send to* → *Desktop (create shortcut)*.
-
-### 3. Make a map
+### 4. Make a map
 
 1. Type your world seed in **World seed** (as shown in Valheim's world list).
 2. Click **Generate map**.
@@ -85,7 +85,7 @@ Riverheim cannot generate a world with a **World radius** between 7800 and 9000 
 | Nothing generates | Open the **Log** tab at the bottom; AtlasBuilder's own messages are there. |
 | Maps don't match my world | Check **Riverheim** says *Installed* with your game's version, and that custom settings match your server (**Import config**). With *Bundled*, differences are expected. |
 | **Import config** can't find the file | The Riverheim Config mod creates `BepInEx\config\com.valheim.riverheim.config.cfg` the first time the game starts with it. |
-| Custom world settings are greyed out ("Missing: …") | A launcher file is missing. Reinstall, or keep all the launcher's files in one folder. |
+| Custom world settings are greyed out ("Missing: …") | A launcher file is missing. Copy all the files from the downloaded zip into the same folder again. |
 
 <details>
 <summary><b>How it works</b> (for the curious)</summary>
