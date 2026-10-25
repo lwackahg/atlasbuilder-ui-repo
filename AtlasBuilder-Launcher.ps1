@@ -2346,6 +2346,11 @@ function New-GenerationJobs {
         return
     }
     if ($worldCheck.Checked) {
+        $radiusValue = ($worldFields | Where-Object { $_.Key -eq 'WorldRadius' }).Input.Value
+        if ($radiusValue -ge 7800 -and $radiusValue -le 9000) {
+            [System.Windows.Forms.MessageBox]::Show("World radius $radiusValue m is refused: from 7800 to 9000 m the world edge runs into the Ashlands and Deep North belts and Riverheim cannot generate the world. Use a radius below 7800 or above 9000 (normally 10500, and Expand World Size for a bigger world).", 'World radius', 'OK', 'Warning') | Out-Null
+            return
+        }
         foreach ($biome in 'Swamp', 'Plains') {
             $bandStart = ($worldFields | Where-Object { $_.Key -eq "${biome}Start" }).Input.Value
             $bandEnd = ($worldFields | Where-Object { $_.Key -eq "${biome}End" }).Input.Value
