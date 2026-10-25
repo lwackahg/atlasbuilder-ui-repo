@@ -34,10 +34,10 @@ The map appears on the right and is saved to `Pictures\Riverheim Maps`. The firs
 
 | I want to… | Do this |
 | --- | --- |
-| See what my server's settings do | Tick **Custom world settings** → **Import config** → pick the server's `com.valheim.riverheim.config.cfg` → **Generate map**. |
+| See what my server's settings do | **Import config** → **Config file…** → pick the server's `com.valheim.riverheim.config.cfg` → **Generate map**. |
 | Try settings before making a world | Tick **Custom world settings**, change fields (they turn blue), generate. **Find setting** searches by name, like `island` or `river`. Hover the blue **?** for what a field does. |
 | Use those settings in game | **Export config** saves them as a Riverheim Config file for your profile or server (the old file is backed up). |
-| Try a ready-made world | **Import config** → a file from the Riverheim Config [presets](https://github.com/lwackahg/Riverheim_Config/tree/main/presets) (Pangaea, Archipelago, River Kingdom…). |
+| Try a ready-made world | **Import config** → **Presets** (gentle themes like Pangaea, Archipelago, River Kingdom) or **Wild presets** (Great Rivers, Inland Sea, Atoll, The Alps…). Hover one for what it does. They are the [Riverheim Config presets](https://github.com/lwackahg/Riverheim_Config/tree/main/presets). |
 | Compare several seeds | Type them separated by commas: `400, 401, 69`. |
 | Compare map styles | **Choose…** next to Map modes: Rich (normal), Biomes, Landmass, RichTerrain, Hdr. |
 | Make a bigger or smaller world | Set **In-game radius** at the bottom of the settings, then **Copy EWS settings** and paste them into Expand World Size's config. See [Bigger worlds](#bigger-worlds). |

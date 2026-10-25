@@ -1024,7 +1024,7 @@ $exportButton.Location = [System.Drawing.Point]::new(338, 291)
 $exportButton.Size = [System.Drawing.Size]::new(106, 25)
 $form.Controls.Add($exportButton)
 $toolTip.SetToolTip($exportButton, "Save these world settings as a Riverheim Config mod file (com.valheim.riverheim.config.cfg)`nfor your server or profile. An existing file is backed up first.")
-$toolTip.SetToolTip($importButton, "Fill these fields from a Riverheim Config mod file (com.valheim.riverheim.config.cfg),`nso maps match your server. Also reads expand_world_size.cfg from the same folder.")
+$toolTip.SetToolTip($importButton, "Fill these fields from your server's Riverheim Config file,`nor from a ready-made preset (gentle themes and wild worlds).")
 
 $resetButton = [System.Windows.Forms.Button]::new()
 $resetButton.Text = 'Reset'
@@ -2213,7 +2213,7 @@ $worldCheck.Add_CheckedChanged({
     Update-PresetInfo
 })
 
-$importButton.Add_Click({
+function Import-FromConfigFile {
     $dialog = [System.Windows.Forms.OpenFileDialog]::new()
     $dialog.Title = 'Import Riverheim Config mod settings - pick the profile your server or world uses'
     $dialog.Filter = 'Riverheim Config|com.valheim.riverheim.config.cfg|Config files|*.cfg'
@@ -2237,7 +2237,50 @@ $importButton.Add_Click({
     } catch {
         [System.Windows.Forms.MessageBox]::Show("Could not read that file.`n$($_.Exception.Message)", 'Import config', 'OK', 'Error') | Out-Null
     }
-})
+}
+
+function Import-PresetFile {
+    param([string]$Path, [string]$Name)
+    # Presets list only the settings they change, so start from Riverheim's defaults.
+    try {
+        foreach ($field in $worldFields) { $field.Input.Value = [decimal]$field.Default }
+        [void](Import-WorldSettings -Path $Path)
+        $worldCheck.Checked = $true
+        Update-WorldSettingsSummary
+        $status.Text = "Loaded preset $Name ($(@(Get-ChangedWorldSettings).Count) settings changed). Generate a map to see it, or Export config to use it in game."
+    } catch {
+        [System.Windows.Forms.MessageBox]::Show("Could not read that preset.`n$($_.Exception.Message)", 'Presets', 'OK', 'Error') | Out-Null
+    }
+}
+
+function New-PresetMenu {
+    param([string]$Title, [string]$Folder)
+    # One menu entry per preset file; the name and the hover text come from the file's first two comment lines.
+    $menu = [System.Windows.Forms.ToolStripMenuItem]::new($Title)
+    $menu.DropDown.ShowItemToolTips = $true
+    foreach ($file in @(Get-ChildItem -LiteralPath $Folder -Filter '*.cfg' -File -ErrorAction SilentlyContinue | Sort-Object Name)) {
+        $comments = @(Get-Content -LiteralPath $file.FullName -TotalCount 2)
+        $name = if ($comments.Count -gt 0 -and $comments[0] -match ':\s*(.+)$') { $Matches[1].Trim() } else { $file.BaseName }
+        $item = [System.Windows.Forms.ToolStripMenuItem]::new($name)
+        $item.Tag = $file.FullName
+        if ($comments.Count -gt 1) { $item.ToolTipText = Format-TipText ($comments[1] -replace '^##\s*', '') }
+        $item.Add_Click({ Import-PresetFile -Path $this.Tag -Name $this.Text })
+        [void]$menu.DropDownItems.Add($item)
+    }
+    if ($menu.DropDownItems.Count -eq 0) { $menu.Enabled = $false; $menu.ToolTipText = "No presets found in $Folder" }
+    return $menu
+}
+
+$importMenu = [System.Windows.Forms.ContextMenuStrip]::new()
+$importMenu.ShowItemToolTips = $true
+$importFileItem = [System.Windows.Forms.ToolStripMenuItem]::new('Config file...')
+$importFileItem.ToolTipText = "A Riverheim Config mod file (com.valheim.riverheim.config.cfg), so maps match your server.`nAlso reads expand_world_size.cfg from the same folder."
+$importFileItem.Add_Click({ Import-FromConfigFile })
+[void]$importMenu.Items.Add($importFileItem)
+[void]$importMenu.Items.Add([System.Windows.Forms.ToolStripSeparator]::new())
+[void]$importMenu.Items.Add((New-PresetMenu -Title 'Presets' -Folder (Join-Path $scriptRoot 'presets')))
+[void]$importMenu.Items.Add((New-PresetMenu -Title 'Wild presets' -Folder (Join-Path $scriptRoot 'presets\wild')))
+$importButton.Add_Click({ $importMenu.Show($importButton, [System.Drawing.Point]::new(0, $importButton.Height)) })
 
 $copyEwsButton.Add_Click({
     [System.Windows.Forms.Clipboard]::SetText(((Get-EwsSettingsLines) -join [Environment]::NewLine))
