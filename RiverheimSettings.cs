@@ -32,6 +32,8 @@ namespace RiverheimConfig
         public const string RiverFeatures = "9. River Features";
         public const string SubBiomes = "10. Sub-biomes";
         public const string Terrain = "11. Terrain";
+        public const string Patches = "12. Biome Patches";
+        public const string Forests = "13. Forests";
 
         public sealed class Section
         {
@@ -76,7 +78,9 @@ namespace RiverheimConfig
             new Section { Name = Mountains, Title = "Mountains" },
             new Section { Name = RiverFeatures, Title = "River features" },
             new Section { Name = SubBiomes, Title = "Sub-biomes" },
-            new Section { Name = Terrain, Title = "Terrain feel" }
+            new Section { Name = Terrain, Title = "Terrain feel" },
+            new Section { Name = Patches, Title = "Biome patch sizes" },
+            new Section { Name = Forests, Title = "Forests" }
         };
 
         private static Setting Number(string section, string key, string label, double value, double min, double max, double step, int decimals, string path, string description)
@@ -106,21 +110,23 @@ namespace RiverheimConfig
         private const int UnsafeRadiusMax = 9000;
 
         private const string Placement = "world.biomes.competitivePlacement.main.biomes.";
+        private const string Plateaus = "world.splats.plateaus.main.";
+        private const string SourceSplats = "world.splats.riverSourceSplats.main.";
 
         // Defaults are Riverheim 1.2.1's own values (DefaultConfig plus the default preset's version-2 overrides).
         // Settings without a path are biome bands, applied as curves in Apply.
         public static readonly Setting[] All =
         {
-            Number(World, "WorldRadius", "World radius (m)", 10500, 1000, 100000, 500, 0, "common.worldSize",
-                "Radius of the world Riverheim generates, in metres. Keep 10500 and use Expand World Size stretching for a bigger or smaller world: biome bands scale with this value, but the Ashlands and Deep North (which always begin 8000 m from the centre, where the game itself puts them), the landmass swirl and the rainfall pattern do not, so changing it distorts the layout. Values from 7800 to 9000 are refused and Riverheim's own radius is kept: there the world edge runs into the Ashlands and Deep North belts and Riverheim cannot generate the world."),
-            Number(World, "TileSpacing", "Tile spacing (m)", 60, 10, 1000, 5, 0, "common.tileSpacing",
-                "Distance between generation points in metres. Lower values add detail but take much longer, and river and lake counts grow with the number of points."),
-            Number(World, "SeaFloorDepth", "Sea floor depth", -40, -1000, 1000, 1, 1, "common.oceanDepth",
-                "Height the sea floor settles to at the world edge and in the polar trenches, also used as the floor when shaping terrain. More negative values mean deeper edges and trenches."),
+            Number(World, "WorldRadius", "World radius (m)", 10500, 4000, 100000, 500, 0, "common.worldSize",
+                "Radius of the world Riverheim generates, in metres. Keep 10500 and use Expand World Size stretching for a bigger or smaller world: biome bands scale with this value, but the Ashlands and Deep North (which always begin 8000 m from the centre, where the game itself puts them), the landmass swirl and the rainfall pattern do not, so changing it distorts the layout. Values from 7800 to 9000 are refused and Riverheim's own radius is kept: there the world edge runs into the Ashlands and Deep North belts and Riverheim cannot generate the world. Below 4000 Riverheim cannot generate the world either."),
+            Number(World, "TileSpacing", "Tile spacing (m)", 60, 10, 150, 5, 0, "common.tileSpacing",
+                "Distance between generation points in metres. Lower values add detail but take much longer (10: about 30 times longer), and river and lake counts grow with the number of points. Any change gives a different world for the same seed. Above 150 Riverheim can fail to generate the world."),
+            Number(World, "SeaFloorDepth", "Sea floor depth", -40, -1000, 0, 1, 1, "common.oceanDepth",
+                "Height the sea floor settles to at the world edge and in the polar trenches, also used as the floor when shaping terrain. More negative values mean deeper edges and trenches. Above 0 Riverheim cannot generate the world."),
             Number(World, "OceanBiomeDepth", "Ocean biome depth", -20, -1000, 1000, 1, 1, "world.biomes.conditionalPlacement.main.oceanDepth",
                 "Water must be deeper than this, and far enough from the coast, to count as the Ocean biome. More negative values mean fewer waters count as Ocean."),
-            Number(World, "MountainHeight", "Mountain height", 50, -1000, 1000, 1, 1, "common.mountainHeight",
-                "Height Riverheim treats as mountain level when shaping terrain and scoring which high ground becomes the Mountain biome. Lower values make more mountains."),
+            Number(World, "MountainHeight", "Mountain height", 50, 0, 200, 1, 1, "common.mountainHeight",
+                "Height Riverheim treats as mountain level when shaping terrain and scoring which high ground becomes the Mountain biome. Lower values make more mountains. Below 0 or above about 200 Riverheim cannot generate the world."),
             Number(World, "StartingAreaRadius", "Starting area (m)", 870, 0, 10000, 50, 0, "common.startingAreaRadius",
                 "Size of the gentle area around spawn in metres, where hills are shaped like flatland. Larger values make a bigger gentle start; below about 400 there is no gentle area, the same as 0."),
 
@@ -140,8 +146,8 @@ namespace RiverheimConfig
                 "River segments narrower than this are removed. Higher values drop thin streams. The lowest allowed value is 3: at 1 Riverheim fails to generate the world, and at 0 it keeps every trickle and runs out of memory."),
             Number(Rivers, "MaxWidthDifference", "Max tributary ratio", 2.2, 0, 1000, 0.5, 1, "world.rivers.prune.main.maxWidthDiff",
                 "Where rivers join, a side branch is removed if the widest incoming branch is more than this many times wider. Higher values keep more small tributaries; from about 5 up they are all kept, the same as 0."),
-            Number(Rivers, "MeanderPeriod", "Meander period", 3.4, 0, 100, 0.1, 2, "world.rivers.meander.main.period",
-                "Length of river bends, measured in river widths. Higher values make longer, gentler bends."),
+            Number(Rivers, "MeanderPeriod", "Meander period", 3.4, 0.5, 100, 0.1, 2, "world.rivers.meander.main.period",
+                "Length of river bends, measured in river widths, so wider rivers get bigger loops. Higher values make longer, gentler bends; 0 crashes Riverheim, so the minimum is 0.5."),
             Number(Rivers, "MeanderAmplitude", "Meander amplitude", 1.35, 0, 100, 0.05, 2, "world.rivers.meander.main.riverAmplitude",
                 "Strength of river bends. Higher values make rivers wind more."),
 
@@ -153,6 +159,12 @@ namespace RiverheimConfig
                 "How strongly lakes prefer flat lowland. Above about 1 it makes no further difference; negative values push lakes away from lowland."),
             Number(Lakes, "CuriosityContribution", "Terrain interest pull", 0.8, -100, 100, 0.05, 2, "world.height.lakes.main.affinity.kCuriosity",
                 "How strongly lakes prefer notable spots along river systems."),
+            Number(Lakes, "LakeSize", "Lake size (m)", 50, 0, 300, 10, 0, "world.height.lakes.main.expansion",
+                "How far lakes grow out from their starting points, in metres (varied by Lake size variability). Lower values leave fewer, smaller lakes; at 300 neighbouring lakes join into large inland waters. Much higher values flood most of the inland (1000), so the maximum is 300."),
+            Number(Lakes, "LakeSizeVariability", "Lake size variability", 0.7, 0, 3, 0.1, 2, "world.height.lakes.main.expansionVariability",
+                "How much Lake size varies from place to place, which changes lake shapes and how evenly sized they are. 0 grows every lake by the same distance."),
+            Number(Lakes, "LakeMinCoastDistance", "Lake distance from sea (m)", 200, 0, 2000, 50, 0, "world.height.lakes.main.minCoastalProximity",
+                "Lakes only form on land at least this far from the sea, in metres. 0 also allows lakes near the coast; higher values push lakes inland, where they can gather into a few large lakes (seed 400 at 1500)."),
 
             Number(Biomes, "MeadowsBias", "Meadows bias", 0, -1000, 1000, 1, 1, Affinity + "meadows.bias",
                 "Flat bonus to the Meadows score wherever biomes compete for land. Higher values let it win more land."),
@@ -207,12 +219,16 @@ namespace RiverheimConfig
                 "Size of the sheltered water area Riverheim keeps near the centre of the world, in metres. 0 removes it (AtlasBuilder's Mini preset does this)."),
             Number(Landmass, "HarborCircularity", "Harbor circularity", 0.045, 0, 10, 0.005, 3, "world.landmass.restrictions.main.harbor.circularity",
                 "How round the central harbor area is kept. Higher values make it rounder; 0 removes the harbor, like Harbor radius 0."),
-            Number(Landmass, "SmallIslandSizeThreshold", "Remove islands below (m)", 0, 0, 100000, 10, 0, "world.landmass.postprocessing.main.smallIslandSizeThreshold",
-                "Landmasses smaller than about this many metres across are removed after painting. 0 keeps every island; Riverheim's own Deep North region uses 220 to clear small ones."),
-            Number(Landmass, "CoastalTrimDistance", "Coastal trim distance (m)", 85, 0, 10000, 5, 0, "world.landmass.postprocessing.main.coastalTrimDistance",
-                "How far the coastline is trimmed back from the painted land edge, in metres. Higher values make landmasses a bit smaller with more irregular coasts."),
+            Number(Landmass, "SmallIslandSizeThreshold", "Remove islands below (m)", 0, 0, 4000, 10, 0, "world.landmass.postprocessing.main.smallIslandSizeThreshold",
+                "Landmasses smaller than about this many metres across are removed after painting. 0 keeps every island; Riverheim's own Deep North region uses 220 to clear small ones. Above about 4000 it can remove every landmass and Riverheim fails."),
+            Number(Landmass, "CoastalTrimDistance", "Coastal trim distance (m)", 85, 0, 1000, 5, 0, "world.landmass.postprocessing.main.coastalTrimDistance",
+                "How far the coastline is trimmed back from the painted land edge, in metres. Higher values make landmasses a bit smaller with more irregular coasts; near 0 the land joins into large continents. Above about 1000 so much land is trimmed that Riverheim fails."),
             Number(Landmass, "IslandMergeThreshold", "Island merge threshold", 0.25, 0, 10, 0.05, 2, "world.landmass.partitionMerging.main.mergeThreshold",
                 "How readily neighbouring land partitions merge into one landmass. Lower values merge more."),
+            Number(Landmass, "CoastalTrimVariance", "Coastal trim variance", 0.32, 0, 2, 0.04, 2, "world.landmass.postprocessing.main.coastalTrimVariance",
+                "How much Coastal trim distance varies along the coast. Higher values make more ragged coasts and break off more small islands; 0 trims evenly. Any change reshapes the land across the whole world for the same seed."),
+            Number(Landmass, "SwirlWarp", "Swirl warp", 0.35, 0, 2, 0.05, 2, "world.landmass.restrictions.main.featureWarp.intensity",
+                "How strongly noise distorts the edges of the swirl arms, the central harbor and the outer ocean. 0 gives smooth swirl arms; higher values break the land into more, smaller islands. Any change reshapes the land across the whole world for the same seed."),
 
             Number(Mountains, "MountainScoreThreshold", "Mountain biome threshold", 0.85, 0, 10, 0.05, 2, "world.biomes.conditionalPlacement.main.mountainScoreThreshold",
                 "How well high ground must score as mountain terrain before it becomes the Mountain biome. Lower values turn more high ground into Mountain; above 1 nothing qualifies and the world has no Mountain biome."),
@@ -226,9 +242,15 @@ namespace RiverheimConfig
                 "How much a mountain candidate's area counts in its score. Higher values favour bigger mountain regions."),
             Number(Mountains, "MountainEdgeTrim", "Mountain edge trim", 20, 0, 1000, 5, 0, "world.height.mountainEdgeProximity.main.trim",
                 "How far mountain edges are trimmed back, in metres. Higher values make mountains smaller and steeper-sided."),
+            Number(Mountains, "MountainPeakRate", "Mountain peak rate", 0.4, 0, 1, 0.05, 2, Plateaus + "mountainPeaks.spawnRate",
+                "Share of suitable mountain tops that get a peak feature: a rock spire or a raised, rounded peak. Higher values add more; 0 removes them."),
+            Number(Mountains, "MountainSpireMinHeight", "Mountain spire min height (m)", 32, 0, 200, 1, 0, Plateaus + "mountainPeaks.cragHeight.min",
+                "Lowest height of the rock spires on mountain peaks, in metres above the ground they stand on. Each spire gets a random height between this and the max height."),
+            Number(Mountains, "MountainSpireMaxHeight", "Mountain spire max height (m)", 45, 0, 200, 1, 0, Plateaus + "mountainPeaks.cragHeight.max",
+                "Highest height of the rock spires on mountain peaks, in metres above the ground they stand on. At 200 they show on the map as tall terraced cones."),
 
-            Number(RiverFeatures, "ChannelWidth", "Channel width (m)", 40, 0, 10000, 5, 0, "world.rivers.channels.main.width",
-                "Width of channels, the straits Riverheim cuts through large landmasses to connect distant waters. 0 turns channels off."),
+            Number(RiverFeatures, "ChannelWidth", "Channel width (m)", 40, 0, 500, 5, 0, "world.rivers.channels.main.width",
+                "Width of channels, the straits Riverheim cuts through large landmasses to connect distant waters. 0 turns channels off. Wide channels need far more memory to generate (500: about 2 GB, 1500: about 15 GB), so the maximum is 500."),
             Number(RiverFeatures, "ChannelMeanderAmplitude", "Channel meander amplitude", 0.75, 0, 100, 0.05, 2, "world.rivers.meander.main.channelAmplitude",
                 "Strength of bends in channels, like Meander amplitude for rivers."),
             Number(RiverFeatures, "RainfallScale", "Rainfall pattern size (m)", 1050, 1, 100000, 50, 0, "world.rivers.precipitation.main.noiseScale",
@@ -245,6 +267,8 @@ namespace RiverheimConfig
                 "How notable places where rivers run close together are. Notable spots attract lakes and local terrain features."),
             Number(RiverFeatures, "BendCuriosity", "River bend features", 1, 0, 100, 0.1, 2, "world.rivers.curiosities.main.angleMult",
                 "How notable sharp river bends are. Notable spots attract lakes and local terrain features."),
+            Number(RiverFeatures, "SourcePondChance", "River source ponds", 0.6, 0, 1, 0.05, 2, SourceSplats + "ponds.frequency",
+                "Chance that the source of a long enough river gets a small pond, roughly 20 to 30 m across. 0 removes them. The ponds are small: on a 4096 px map they only show in close-ups."),
 
             Number(SubBiomes, "MistgladeRate", "Mistglade rate", 0.03, 0, 1, 0.01, 3, "world.biomes.replacement.main.biomes.mistglade.rate",
                 "Share of Mistlands turned into Mistglade, the rare mist-free sub-biome with mellow terrain. 0 turns Mistglade off."),
@@ -266,15 +290,47 @@ namespace RiverheimConfig
             Number(Terrain, "TerracingStep", "Terracing step", 2, 0, 100, 0.5, 2, "rendering.renderer.shaping.terracingStep",
                 "Height step of the gentle terracing applied to terrain. Larger values make more pronounced steps; 0 removes them."),
             Number(Terrain, "FlatlandThreshold", "Flatland amount", 0.275, 0, 1, 0.025, 3, "world.height.flatlands.main.noiseThreshold",
-                "Threshold of the noise pattern that marks land as flat lowland. Higher values make more flatland; lower values make more rolling terrain."),
-            Number(Terrain, "LandSlope", "Land slope", 1.06, 0, 100, 0.05, 2, "world.height.incline.main.land.mult",
-                "Overall steepness of land rising away from water. Higher values make higher, steeper terrain inland."),
+                "Threshold of the noise pattern that marks land as flat lowland. Higher values make more flatland; lower values make more rolling terrain. Above about 0.35 the flatland erases mountain ground: at 0.4 the Mountain biome (and its silver) is almost gone."),
+            Number(Terrain, "LandSlope", "Land slope", 1.06, 0.2, 100, 0.05, 2, "world.height.incline.main.land.mult",
+                "Overall steepness of land rising away from water. Higher values make higher, steeper terrain inland. Below 0.2 Riverheim can fail on some seeds."),
             Number(Terrain, "ErosionRate", "Erosion rate", 0.12, 0, 10, 0.02, 2, "world.height.settlement.main.hydraulicErosionRate",
                 "Strength of the water erosion pass that settles the terrain. Higher values wear terrain down and smooth it more."),
             Number(Terrain, "MeadowsShapingIntensity", "Meadows shaping intensity", 0.75, 0, 100, 0.25, 2, "world.biomes.postprocessing.main.meadowsShapingIntensity",
                 "How strongly Meadows terrain is reshaped after biome placement. Higher values make Meadows terrain more distinct from its surroundings."),
-            Number(Terrain, "PlainsShapingIntensity", "Plains shaping intensity", 0.5, 0, 100, 0.25, 2, "world.biomes.postprocessing.main.plainsShapingIntensity",
-                "How strongly Plains terrain is reshaped after biome placement. Higher values make Plains terrain more distinct from its surroundings.")
+            Number(Terrain, "PlainsShapingIntensity", "Plains shaping intensity", 0.5, 0, 6, 0.25, 2, "world.biomes.postprocessing.main.plainsShapingIntensity",
+                "How strongly Plains terrain is reshaped after biome placement. Higher values make Plains terrain more distinct from its surroundings. Above 6 Riverheim cannot generate the world."),
+            Number(Terrain, "HillRate", "Hill rate", 0.6, 0, 1, 0.05, 2, Plateaus + "hills.spawnRate",
+                "Share of suitable spots in Meadows, Black Forest and Plains that get a small rounded hill. Higher values add more; 0 removes them."),
+            Number(Terrain, "ShorePlateauRate", "Shore plateau rate", 0.45, 0, 1, 0.05, 2, Plateaus + "coastalCliffs.spawnRate",
+                "Share of suitable spots on land next to water (from Shore plateau min height up to 48 m high) that get a raised plateau with a steep side. Higher values add more; 0 removes them."),
+            Number(Terrain, "ShorePlateauMinHeight", "Shore plateau min height (m)", 19, 0, 100, 1, 0, Plateaus + "coastalCliffs.minHeight",
+                "Land next to water must be at least this high, in metres, to get a shore plateau (see Shore plateau rate). Lower values allow them on lower ground, so there are more; from 48 up there are none."),
+            Number(Terrain, "RiverBankMaxHeight", "River bank max height", 80, 0, 200, 5, 0, "rendering.renderer.rivers.profile.maxBankHeight",
+                "Height up to which river banks are carved into the terrain. Lower values carve rivers less deeply; at 0 most rivers are gone from the map. Higher values change little but need much more memory to generate (500: about 4 times as much as the default), so the maximum is 200."),
+            Number(Terrain, "RiverBankSmoothness", "River bank smoothness", 3, 0.5, 30, 0.5, 2, "rendering.renderer.rivers.profile.bankSmoothness",
+                "How softly river banks blend into the surrounding land. Higher values make wider, flatter river valleys; at 30 rivers become broad, flooded valleys. At 0 Riverheim cannot generate the world, so the minimum is 0.5."),
+            Number(Terrain, "MistlandsRoughness", "Mistlands roughness", 130, 0, 400, 10, 0, "rendering.renderer.biomes.mistlands.coarseMagnitude",
+                "Height of the Mistlands' jagged hills and gullies. Lower values make smoother Mistlands, and at 0 their edges sink into shallow water; higher values make them rougher and higher."),
+            Number(Terrain, "SwampPathDepth", "Swamp path depth", -14.75, -40, 20, 1, 2, "rendering.renderer.biomes.swamp.pathBandDepth",
+                "Height of the winding raised paths through swamps. Higher values lift the paths and the swamp ground with them: at 20 the swamp is almost dry. Lower values put more of it under water."),
+
+            Number(Patches, "MeadowsPatchSize", "Meadows patch size", 200, 50, 1000, 10, 0, Placement + "meadows.scoring.targetPatchSize",
+                "Size Meadows patches aim for while biomes compete for land. Lower values split Meadows into many small patches and give it more land overall (50: about 70% more land in about 12 times as many patches, seeds 400 and 1337); higher values make fewer, larger patches."),
+            Number(Patches, "ForestPatchSize", "Black Forest patch size", 230, 50, 1000, 10, 0, Placement + "forest.scoring.targetPatchSize",
+                "Size Black Forest patches aim for while biomes compete for land. Lower values split Black Forest into many small patches and give it more land overall (50: about 18% more land in about 4 times as many patches, seeds 400 and 1337); higher values make fewer, larger patches."),
+            Number(Patches, "SwampPatchSize", "Swamp patch size", 570, 100, 3000, 10, 0, Placement + "swamp.scoring.targetPatchSize",
+                "Size Swamp patches aim for while biomes compete for land. Lower values split Swamp into many small patches and give it more land overall (100: about 70% more land in about 10 times as many patches, seeds 400 and 1337); higher values make fewer, larger swamps."),
+            Number(Patches, "PlainsPatchSize", "Plains patch size", 650, 100, 3000, 10, 0, Placement + "plains.scoring.targetPatchSize",
+                "Size Plains patches aim for while biomes compete for land. Lower values split Plains into many small patches and give it more land overall (100: about 11% more land in about 3 times as many patches, seeds 400 and 1337); higher values make fewer, larger patches."),
+            Number(Patches, "MistlandsPatchSize", "Mistlands patch size", 210, 50, 1000, 10, 0, Placement + "mistlands.scoring.targetPatchSize",
+                "Size Mistlands patches aim for while biomes compete for land. Lower values split Mistlands into many small patches and give it more land overall (50: about 10% more land in about twice as many patches, seeds 400 and 1337); higher values make fewer, larger patches."),
+            Number(Patches, "MarshPatchSize", "Marsh patch size", 65, 10, 500, 5, 0, Placement + "marsh.scoring.targetPatchSize",
+                "Size Marsh patches aim for while biomes compete for land. Lower values make many small marsh patches; higher values make fewer, larger ones."),
+
+            Number(Forests, "ForestPatternSize", "Forest pattern size (m)", 250, 50, 2000, 25, 0, "world.forestation.main.noiseScale",
+                "Size, in metres, of the random pattern that sets how densely land is wooded. AtlasBuilder maps show it only as small changes in the dark forest patches near water."),
+            Number(Forests, "MeadowsRiversideTrees", "Meadows riverside trees", -0.14, -1, 1, 0.02, 2, "world.forestation.main.meadowsRiverBonus",
+                "Added to how densely Meadows is wooded within 50 m of a river, fading out with distance. Negative values keep Meadows riverbanks open; positive values put forest along them.")
         };
 
         public static Setting Find(string section, string key)

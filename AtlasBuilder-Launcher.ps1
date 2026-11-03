@@ -324,16 +324,21 @@ function Get-RiverheimConfigHook {
     if (-not (Test-Path -LiteralPath $settingsSource -PathType Leaf)) {
         throw 'RiverheimSettings.cs was not found next to the launcher.'
     }
+    # The DLL is named after the sources' content: a map still drawing keeps its DLL loaded (and locked), so a changed
+    # settings file builds a new one beside it instead of overwriting it.
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    $bytes = [System.IO.File]::ReadAllBytes($hookSource) + [System.IO.File]::ReadAllBytes($settingsSource)
+    $hash = (-join ($sha.ComputeHash($bytes)[0..5] | ForEach-Object { $_.ToString('x2') }))
+    $name = "RiverheimConfigHook-$hash.dll"
     if ($Engine -and $Engine.Installed) {
-        $hookDll = Join-Path $Engine.Dir 'RiverheimConfigHook.dll'
+        $hookDll = Join-Path $Engine.Dir $name
         $referenceDir = $Engine.AssemblyDir
     } else {
         $bundle = Get-AtlasBundle -AtlasExe $AtlasExe
-        $hookDll = Join-Path $bundle.CacheDir 'RiverheimConfigHook.dll'
+        $hookDll = Join-Path $bundle.CacheDir $name
         $referenceDir = $bundle.AssemblyDir
     }
-    $newestSource = @((Get-Item -LiteralPath $hookSource).LastWriteTimeUtc, (Get-Item -LiteralPath $settingsSource).LastWriteTimeUtc) | Sort-Object -Descending | Select-Object -First 1
-    if ((Test-Path -LiteralPath $hookDll) -and (Get-Item -LiteralPath $hookDll).LastWriteTimeUtc -ge $newestSource) {
+    if (Test-Path -LiteralPath $hookDll) {
         return $hookDll
     }
     # netstandard: the installed Riverheim.dll targets .NET Standard 2.1.
